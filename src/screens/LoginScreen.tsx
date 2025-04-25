@@ -11,10 +11,20 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onNavigateToRegister
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const handleLogin = async () => {
-    if (username.trim() === '' || password.trim() === '') {
-      Alert.alert('Error', 'Por favor ingresa usuario y contraseña');
+    // Limpiar mensaje de error anterior
+    setErrorMessage(null);
+    
+    // Validación básica
+    if (username.trim() === '') {
+      setErrorMessage('Por favor ingresa un nombre de usuario');
+      return;
+    }
+    
+    if (password.trim() === '') {
+      setErrorMessage('Por favor ingresa una contraseña');
       return;
     }
 
@@ -25,7 +35,17 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onNavigateToRegister
       // localStorage.setItem('token', data.token);
       onLogin(data.username);
     } catch (error) {
-      Alert.alert('Error', error instanceof Error ? error.message : 'Error al iniciar sesión');
+      console.error('Error de login:', error);
+      if (error instanceof Error) {
+        // Mostrar mensaje de error específico basado en la respuesta del servidor
+        if (error.message.includes('Credenciales inválidas')) {
+          setErrorMessage('Usuario o contraseña incorrectos');
+        } else {
+          setErrorMessage(`Error: ${error.message}`);
+        }
+      } else {
+        setErrorMessage('No se pudo iniciar sesión. Inténtalo de nuevo.');
+      }
     } finally {
       setLoading(false);
     }
@@ -36,23 +56,36 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onNavigateToRegister
       <Text style={styles.title}>GAMG</Text>
       <Text style={styles.subtitle}>Inicia sesión para jugar</Text>
       
+      {/* Mostrar mensaje de error si existe */}
+      {errorMessage && (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>{errorMessage}</Text>
+        </View>
+      )}
+      
       <View style={styles.inputContainer}>
         <TextInput
-          style={styles.input}
+          style={[styles.input, errorMessage && username.trim() === '' ? styles.inputError : null]}
           placeholder="Nombre de usuario"
           placeholderTextColor="#aaa"
           value={username}
-          onChangeText={setUsername}
+          onChangeText={(text) => {
+            setUsername(text);
+            setErrorMessage(null);
+          }}
           autoCapitalize="none"
           editable={!loading}
         />
         
         <TextInput
-          style={styles.input}
+          style={[styles.input, errorMessage && password.trim() === '' ? styles.inputError : null]}
           placeholder="Contraseña"
           placeholderTextColor="#aaa"
           value={password}
-          onChangeText={setPassword}
+          onChangeText={(text) => {
+            setPassword(text);
+            setErrorMessage(null);
+          }}
           secureTextEntry
           editable={!loading}
         />
@@ -94,7 +127,20 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 18,
     color: '#bd93f9',
-    marginBottom: 40,
+    marginBottom: 30,
+  },
+  errorContainer: {
+    backgroundColor: 'rgba(255, 85, 85, 0.2)',
+    borderRadius: 5,
+    padding: 10,
+    marginBottom: 20,
+    width: '100%',
+    maxWidth: 300,
+  },
+  errorText: {
+    color: '#ff5555',
+    textAlign: 'center',
+    fontSize: 14,
   },
   inputContainer: {
     width: '100%',
@@ -108,6 +154,11 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     color: '#f8f8f2',
     width: '100%',
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  inputError: {
+    borderColor: '#ff5555',
   },
   button: {
     backgroundColor: '#ff79c6',

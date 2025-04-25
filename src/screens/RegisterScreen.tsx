@@ -12,15 +12,31 @@ const RegisterScreen: React.FC<RegisterScreenProps> = ({ onRegister, onNavigateT
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const handleRegister = async () => {
-    if (username.trim() === '' || password.trim() === '') {
-      Alert.alert('Error', 'Por favor completa todos los campos');
+    // Limpiar mensaje de error anterior
+    setErrorMessage(null);
+    
+    // Validación básica
+    if (username.trim() === '') {
+      setErrorMessage('Por favor ingresa un nombre de usuario');
+      return;
+    }
+    
+    if (password.trim() === '') {
+      setErrorMessage('Por favor ingresa una contraseña');
       return;
     }
     
     if (password !== confirmPassword) {
-      Alert.alert('Error', 'Las contraseñas no coinciden');
+      setErrorMessage('Las contraseñas no coinciden');
+      return;
+    }
+
+    // Validación de contraseña segura
+    if (password.length < 6) {
+      setErrorMessage('La contraseña debe tener al menos 6 caracteres');
       return;
     }
 
@@ -31,7 +47,17 @@ const RegisterScreen: React.FC<RegisterScreenProps> = ({ onRegister, onNavigateT
       // localStorage.setItem('token', data.token);
       onRegister(data.username);
     } catch (error) {
-      Alert.alert('Error', error instanceof Error ? error.message : 'Error al registrarse');
+      console.error('Error de registro:', error);
+      if (error instanceof Error) {
+        // Mostrar mensaje de error específico basado en la respuesta del servidor
+        if (error.message.includes('El usuario ya existe')) {
+          setErrorMessage('Este nombre de usuario ya está en uso');
+        } else {
+          setErrorMessage(`Error: ${error.message}`);
+        }
+      } else {
+        setErrorMessage('No se pudo completar el registro. Inténtalo de nuevo.');
+      }
     } finally {
       setLoading(false);
     }
@@ -42,33 +68,49 @@ const RegisterScreen: React.FC<RegisterScreenProps> = ({ onRegister, onNavigateT
       <Text style={styles.title}>GAMG</Text>
       <Text style={styles.subtitle}>Regístrate para jugar</Text>
       
+      {/* Mostrar mensaje de error si existe */}
+      {errorMessage && (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>{errorMessage}</Text>
+        </View>
+      )}
+      
       <View style={styles.inputContainer}>
         <TextInput
-          style={styles.input}
+          style={[styles.input, errorMessage && username.trim() === '' ? styles.inputError : null]}
           placeholder="Nombre de usuario"
           placeholderTextColor="#aaa"
           value={username}
-          onChangeText={setUsername}
+          onChangeText={(text) => {
+            setUsername(text);
+            setErrorMessage(null);
+          }}
           autoCapitalize="none"
           editable={!loading}
         />
         
         <TextInput
-          style={styles.input}
+          style={[styles.input, errorMessage && (password.trim() === '' || password.length < 6) ? styles.inputError : null]}
           placeholder="Contraseña"
           placeholderTextColor="#aaa"
           value={password}
-          onChangeText={setPassword}
+          onChangeText={(text) => {
+            setPassword(text);
+            setErrorMessage(null);
+          }}
           secureTextEntry
           editable={!loading}
         />
 
         <TextInput
-          style={styles.input}
+          style={[styles.input, errorMessage && password !== confirmPassword ? styles.inputError : null]}
           placeholder="Confirmar contraseña"
           placeholderTextColor="#aaa"
           value={confirmPassword}
-          onChangeText={setConfirmPassword}
+          onChangeText={(text) => {
+            setConfirmPassword(text);
+            setErrorMessage(null);
+          }}
           secureTextEntry
           editable={!loading}
         />
@@ -110,7 +152,20 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 18,
     color: '#bd93f9',
-    marginBottom: 40,
+    marginBottom: 30,
+  },
+  errorContainer: {
+    backgroundColor: 'rgba(255, 85, 85, 0.2)',
+    borderRadius: 5,
+    padding: 10,
+    marginBottom: 20,
+    width: '100%',
+    maxWidth: 300,
+  },
+  errorText: {
+    color: '#ff5555',
+    textAlign: 'center',
+    fontSize: 14,
   },
   inputContainer: {
     width: '100%',
@@ -124,6 +179,11 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     color: '#f8f8f2',
     width: '100%',
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  inputError: {
+    borderColor: '#ff5555',
   },
   button: {
     backgroundColor: '#50fa7b',
