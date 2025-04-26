@@ -6,8 +6,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import LoginScreen from './src/screens/LoginScreen';
 import RegisterScreen from './src/screens/RegisterScreen';
 import GameMenuScreen from './src/screens/GameMenuScreen';
+import SettingsScreen from './src/screens/SettingsScreen';
 
-type Screen = 'login' | 'register' | 'game-menu';
+type Screen = 'login' | 'register' | 'game-menu' | 'settings';
 
 const { width } = Dimensions.get('window');
 
@@ -128,6 +129,14 @@ export default function App() {
     // Aquí iría la lógica para iniciar el juego
     console.log('Iniciando juego...');
   };
+  
+  const handleSettings = () => {
+    changeScreen('settings');
+  };
+  
+  const handleBackToMenu = () => {
+    changeScreen('game-menu', 'left');
+  };
 
   // Mostrar pantalla de carga mientras se verifica el token
   if (isLoading) {
@@ -169,6 +178,13 @@ export default function App() {
             username={username} 
             onLogout={handleLogout} 
             onStartGame={handleStartGame}
+            onSettings={handleSettings}
+          />
+        )}
+        
+        {currentScreen === 'settings' && (
+          <SettingsScreen
+            onBack={handleBackToMenu}
           />
         )}
       </Animated.View>
