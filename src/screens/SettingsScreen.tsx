@@ -13,6 +13,13 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+// Definir la estructura para un colaborador
+interface Collaborator {
+  id: string;
+  name: string;
+  areaIndex: number;
+}
+
 interface SettingsScreenProps {
   onBack: () => void;
 }
@@ -21,8 +28,10 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack }) => {
   // Estados para los datos
   const [organizationName, setOrganizationName] = useState('');
   const [areas, setAreas] = useState<string[]>(['']);
+  const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
   const [isEditingName, setIsEditingName] = useState(false);
   const [isEditingAreas, setIsEditingAreas] = useState(false);
+  const [isEditingCollaborators, setIsEditingCollaborators] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   
@@ -37,6 +46,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack }) => {
       try {
         const savedName = await AsyncStorage.getItem('organizationName');
         const savedAreas = await AsyncStorage.getItem('organizationAreas');
+        const savedCollaborators = await AsyncStorage.getItem('collaborators');
         
         if (savedName) {
           setOrganizationName(savedName);
@@ -44,6 +54,10 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack }) => {
         
         if (savedAreas) {
           setAreas(JSON.parse(savedAreas));
+        }
+        
+        if (savedCollaborators) {
+          setCollaborators(JSON.parse(savedCollaborators));
         }
       } catch (error) {
         console.error('Error al cargar configuración:', error);
@@ -79,9 +93,32 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack }) => {
   const removeArea = (index: number) => {
     if (areas.length <= 1) return;
     
+    // Verificar si hay colaboradores usando esta área
+    const hasAssignedCollaborators = collaborators.some(
+      collaborator => collaborator.areaIndex === index
+    );
+    
+    if (hasAssignedCollaborators) {
+      Alert.alert(
+        'No se puede eliminar',
+        'Esta área tiene colaboradores asignados. Reasigna o elimina estos colaboradores primero.'
+      );
+      return;
+    }
+    
     const newAreas = [...areas];
     newAreas.splice(index, 1);
+    
+    // Actualizar índices de áreas en colaboradores
+    const updatedCollaborators = collaborators.map(collaborator => {
+      if (collaborator.areaIndex > index) {
+        return { ...collaborator, areaIndex: collaborator.areaIndex - 1 };
+      }
+      return collaborator;
+    });
+    
     setAreas(newAreas);
+    setCollaborators(updatedCollaborators);
     setHasChanges(true);
   };
 
@@ -92,9 +129,65 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack }) => {
     setAreas(newAreas);
     setHasChanges(true);
   };
+  
+  // Añadir nuevo colaborador
+  const addCollaborator = () => {
+    // Generar un ID único para el nuevo colaborador
+    const newId = Date.now().toString();
+    const newCollaborator: Collaborator = {
+      id: newId,
+      name: '',
+      areaIndex: 0 // Asignar el primer área por defecto
+    };
+    
+    setCollaborators([...collaborators, newCollaborator]);
+    setHasChanges(true);
+  };
+  
+  // Eliminar colaborador
+  const removeCollaborator = (id: string) => {
+    const updatedCollaborators = collaborators.filter(
+      collaborator => collaborator.id !== id
+    );
+    setCollaborators(updatedCollaborators);
+    setHasChanges(true);
+  };
+  
+  // Actualizar nombre del colaborador
+  const updateCollaboratorName = (id: string, name: string) => {
+    const updatedCollaborators = collaborators.map(collaborator => {
+      if (collaborator.id === id) {
+        return { ...collaborator, name };
+      }
+      return collaborator;
+    });
+    
+    setCollaborators(updatedCollaborators);
+    setHasChanges(true);
+  };
+  
+  // Actualizar área del colaborador
+  const updateCollaboratorArea = (id: string, areaIndex: number) => {
+    const updatedCollaborators = collaborators.map(collaborator => {
+      if (collaborator.id === id) {
+        return { ...collaborator, areaIndex };
+      }
+      return collaborator;
+    });
+    
+    setCollaborators(updatedCollaborators);
+    setHasChanges(true);
+  };
 
   // Guardar configuraciones
   const saveSettings = async () => {
+    // Validar que todos los colaboradores tengan nombres
+    const emptyNameCollaborator = collaborators.find(c => c.name.trim() === '');
+    if (emptyNameCollaborator) {
+      Alert.alert('Error', 'Todos los colaboradores deben tener un nombre');
+      return;
+    }
+    
     // Animación del botón al presionar
     Animated.sequence([
       Animated.timing(saveButtonScale, {
@@ -120,11 +213,13 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack }) => {
       
       await AsyncStorage.setItem('organizationName', organizationName);
       await AsyncStorage.setItem('organizationAreas', JSON.stringify(finalAreas));
+      await AsyncStorage.setItem('collaborators', JSON.stringify(collaborators));
       
       setAreas(finalAreas);
       setHasChanges(false);
       setIsEditingName(false);
       setIsEditingAreas(false);
+      setIsEditingCollaborators(false);
       
       Alert.alert('Éxito', 'Configuración guardada correctamente');
     } catch (error) {
@@ -234,6 +329,93 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack }) => {
             </TouchableOpacity>
           )}
         </View>
+        
+        {/* Sección de colaboradores */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Colaboradores</Text>
+          
+          <TouchableOpacity 
+            style={[styles.actionButton, styles.editAreasButton]}
+            onPress={() => setIsEditingCollaborators(!isEditingCollaborators)}
+          >
+            <Text style={styles.actionButtonText}>
+              {isEditingCollaborators ? 'Cancelar edición' : 'Editar colaboradores'}
+            </Text>
+          </TouchableOpacity>
+          
+          {collaborators.length === 0 && !isEditingCollaborators && (
+            <Text style={styles.emptyStateText}>
+              No hay colaboradores configurados
+            </Text>
+          )}
+          
+          {collaborators.map((collaborator) => (
+            <View key={collaborator.id} style={styles.collaboratorRow}>
+              {isEditingCollaborators ? (
+                <>
+                  <View style={styles.collaboratorEditContainer}>
+                    <TextInput
+                      style={[styles.input, styles.collaboratorInput]}
+                      value={collaborator.name}
+                      onChangeText={(text) => updateCollaboratorName(collaborator.id, text)}
+                      placeholder="Nombre del colaborador"
+                      placeholderTextColor="#8c8c8c"
+                    />
+                    
+                    <View style={styles.selectContainer}>
+                      <Text style={styles.selectLabel}>Área:</Text>
+                      <View style={styles.selectWrapper}>
+                        {areas.map((area, index) => (
+                          <TouchableOpacity
+                            key={index}
+                            style={[
+                              styles.areaOption,
+                              collaborator.areaIndex === index && styles.selectedAreaOption
+                            ]}
+                            onPress={() => updateCollaboratorArea(collaborator.id, index)}
+                          >
+                            <Text 
+                              style={[
+                                styles.areaOptionText,
+                                collaborator.areaIndex === index && styles.selectedAreaOptionText
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {area || `Área ${index + 1}`}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
+                  </View>
+                  
+                  <TouchableOpacity 
+                    style={styles.removeButton}
+                    onPress={() => removeCollaborator(collaborator.id)}
+                  >
+                    <Text style={styles.removeButtonText}>—</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <View style={styles.collaboratorDisplayContainer}>
+                  <Text style={styles.collaboratorName}>{collaborator.name}</Text>
+                  <Text style={styles.collaboratorArea}>
+                    {areas[collaborator.areaIndex] || `Área ${collaborator.areaIndex + 1}`}
+                  </Text>
+                </View>
+              )}
+            </View>
+          ))}
+          
+          {isEditingCollaborators && (
+            <TouchableOpacity 
+              style={[styles.actionButton, styles.addButton]}
+              onPress={addCollaborator}
+            >
+              <Text style={styles.actionButtonText}>+ Añadir colaborador</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </ScrollView>
       
       <View style={styles.buttonContainer}>
@@ -314,6 +496,9 @@ const styles = StyleSheet.create({
   areaInput: {
     marginBottom: 0,
   },
+  collaboratorInput: {
+    marginBottom: 10,
+  },
   valueText: {
     fontSize: 16,
     color: '#f8f8f2',
@@ -336,6 +521,64 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 10,
   },
+  collaboratorRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#44475a',
+    paddingBottom: 15,
+  },
+  collaboratorEditContainer: {
+    flex: 1,
+  },
+  collaboratorDisplayContainer: {
+    flex: 1,
+    padding: 10,
+  },
+  collaboratorName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#f8f8f2',
+    marginBottom: 5,
+  },
+  collaboratorArea: {
+    fontSize: 14,
+    color: '#bd93f9',
+    fontStyle: 'italic',
+  },
+  selectContainer: {
+    marginBottom: 10,
+  },
+  selectLabel: {
+    color: '#f8f8f2',
+    marginBottom: 5,
+    fontSize: 14,
+  },
+  selectWrapper: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 5,
+  },
+  areaOption: {
+    backgroundColor: '#44475a',
+    borderRadius: 15,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  selectedAreaOption: {
+    backgroundColor: '#bd93f9',
+  },
+  areaOptionText: {
+    color: '#f8f8f2',
+    fontSize: 12,
+  },
+  selectedAreaOptionText: {
+    color: '#282a36',
+    fontWeight: 'bold',
+  },
   removeButton: {
     backgroundColor: '#ff5555',
     borderRadius: 5,
@@ -343,6 +586,8 @@ const styles = StyleSheet.create({
     height: 36,
     alignItems: 'center',
     justifyContent: 'center',
+    marginLeft: 10,
+    alignSelf: 'center',
   },
   removeButtonText: {
     color: '#f8f8f2',
@@ -368,6 +613,12 @@ const styles = StyleSheet.create({
   actionButtonText: {
     color: '#282a36',
     fontWeight: 'bold',
+  },
+  emptyStateText: {
+    color: '#f8f8f2',
+    textAlign: 'center',
+    fontStyle: 'italic',
+    padding: 15,
   },
   buttonContainer: {
     marginTop: 20,
