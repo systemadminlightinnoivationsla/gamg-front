@@ -7,8 +7,9 @@ import LoginScreen from './src/screens/LoginScreen';
 import RegisterScreen from './src/screens/RegisterScreen';
 import GameMenuScreen from './src/screens/GameMenuScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
+import GamePlayScreen from './src/screens/GamePlayScreen';
 
-type Screen = 'login' | 'register' | 'game-menu' | 'settings';
+type Screen = 'login' | 'register' | 'game-menu' | 'settings' | 'game-play';
 
 const { width } = Dimensions.get('window');
 
@@ -126,8 +127,7 @@ export default function App() {
   };
 
   const handleStartGame = () => {
-    // Aquí iría la lógica para iniciar el juego
-    console.log('Iniciando juego...');
+    changeScreen('game-play');
   };
   
   const handleSettings = () => {
@@ -184,6 +184,12 @@ export default function App() {
         
         {currentScreen === 'settings' && (
           <SettingsScreen
+            onBack={handleBackToMenu}
+          />
+        )}
+        
+        {currentScreen === 'game-play' && (
+          <GamePlayScreen
             onBack={handleBackToMenu}
           />
         )}
