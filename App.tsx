@@ -8,8 +8,9 @@ import RegisterScreen from './src/screens/RegisterScreen';
 import GameMenuScreen from './src/screens/GameMenuScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import GamePlayScreen from './src/screens/GamePlayScreen';
+import CollaboratorDetailScreen from './src/screens/CollaboratorDetailScreen';
 
-type Screen = 'login' | 'register' | 'game-menu' | 'settings' | 'game-play';
+type Screen = 'login' | 'register' | 'game-menu' | 'settings' | 'game-play' | 'collaborator-detail';
 
 const { width } = Dimensions.get('window');
 
@@ -19,6 +20,8 @@ export default function App() {
   const [username, setUsername] = useState<string>('');
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [selectedCollaborator, setSelectedCollaborator] = useState<any>(null);
+  const [selectedAreaName, setSelectedAreaName] = useState<string>('');
   
   // Animaciones para transiciones
   const screenOpacity = useRef(new Animated.Value(1)).current;
@@ -138,6 +141,16 @@ export default function App() {
     changeScreen('game-menu', 'left');
   };
 
+  const handleSelectCollaborator = (collaborator: any, areaName: string) => {
+    setSelectedCollaborator(collaborator);
+    setSelectedAreaName(areaName);
+    changeScreen('collaborator-detail');
+  };
+
+  const handleBackToGamePlay = () => {
+    changeScreen('game-play', 'left');
+  };
+
   // Mostrar pantalla de carga mientras se verifica el token
   if (isLoading) {
     return (
@@ -191,6 +204,15 @@ export default function App() {
         {currentScreen === 'game-play' && (
           <GamePlayScreen
             onBack={handleBackToMenu}
+            onSelectCollaborator={handleSelectCollaborator}
+          />
+        )}
+        
+        {currentScreen === 'collaborator-detail' && selectedCollaborator && (
+          <CollaboratorDetailScreen
+            collaborator={selectedCollaborator}
+            areaName={selectedAreaName}
+            onBack={handleBackToGamePlay}
           />
         )}
       </Animated.View>

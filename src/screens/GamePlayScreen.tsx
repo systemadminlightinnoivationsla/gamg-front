@@ -26,6 +26,7 @@ interface Collaborator {
 
 interface GamePlayScreenProps {
   onBack: () => void;
+  onSelectCollaborator: (collaborator: Collaborator, areaName: string) => void;
 }
 
 // Colores para los avatares
@@ -43,7 +44,7 @@ const { width, height } = Dimensions.get('window');
 const GAME_AREA_PADDING = 40;
 const AVATAR_SIZE = 70;
 
-const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack }) => {
+const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollaborator }) => {
   // Estados
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
   const [areas, setAreas] = useState<string[]>([]);
@@ -243,7 +244,11 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack }) => {
         duration: 200,
         useNativeDriver: true
       })
-    ]).start();
+    ]).start(() => {
+      // Navegar a la pantalla de detalles del colaborador
+      const areaName = areas[collaborator.areaIndex] || `Área ${collaborator.areaIndex + 1}`;
+      onSelectCollaborator(collaborator, areaName);
+    });
     
     setSelectedCollaborator(collaborator);
   };
