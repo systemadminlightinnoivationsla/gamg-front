@@ -8,10 +8,12 @@ import {
   ScrollView,
   Animated,
   Easing,
-  Alert
+  Alert,
+  ActivityIndicator
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
+import { categorizeActivity, ActivityCategory } from '../services/openRouterService';
 
 // Interfaces
 interface Activity {
@@ -19,6 +21,8 @@ interface Activity {
   name: string;
   description: string;
   completed: boolean;
+  categories: ActivityCategory[];
+  isCategorizing?: boolean;
 }
 
 interface Collaborator {
@@ -61,7 +65,15 @@ const CollaboratorDetailScreen: React.FC<CollaboratorDetailScreenProps> = ({
         const storedActivities = await AsyncStorage.getItem(`activities_${collaborator.id}`);
         
         if (storedActivities) {
-          setActivities(JSON.parse(storedActivities));
+          const parsedActivities = JSON.parse(storedActivities);
+          
+          // Asegurarse de que todas las actividades tengan el campo categories
+          const updatedActivities = parsedActivities.map((activity: any) => ({
+            ...activity,
+            categories: activity.categories || []
+          }));
+          
+          setActivities(updatedActivities);
         }
       } catch (error) {
         console.error('Error al cargar actividades:', error);
@@ -93,7 +105,8 @@ const CollaboratorDetailScreen: React.FC<CollaboratorDetailScreenProps> = ({
       id: Date.now().toString(),
       name: '',
       description: '',
-      completed: false
+      completed: false,
+      categories: []
     };
     
     setActivities([...activities, newActivity]);
@@ -144,6 +157,72 @@ const CollaboratorDetailScreen: React.FC<CollaboratorDetailScreenProps> = ({
     
     setActivities(updatedActivities);
     setHasChanges(true);
+  };
+
+  // Agregar función para categorizar
+  const handleCategorizeActivity = async (id: string) => {
+    const activity = activities.find(act => act.id === id);
+    if (!activity || !activity.name) {
+      Alert.alert('Error', 'La actividad debe tener un nombre para ser categorizada');
+      return;
+    }
+
+    // Marcar la actividad como en proceso de categorización
+    setActivities(
+      activities.map(act => 
+        act.id === id 
+          ? { ...act, isCategorizing: true } 
+          : act
+      )
+    );
+
+    try {
+      const categories = await categorizeActivity(activity.name, activity.description);
+      
+      // Actualizar la actividad con las categorías
+      setActivities(
+        activities.map(act => 
+          act.id === id 
+            ? { ...act, categories, isCategorizing: false } 
+            : act
+        )
+      );
+      
+      setHasChanges(true);
+    } catch (error) {
+      console.error('Error al categorizar la actividad:', error);
+      Alert.alert('Error', 'No se pudo categorizar la actividad');
+      
+      // Quitar la marca de categorización
+      setActivities(
+        activities.map(act => 
+          act.id === id 
+            ? { ...act, isCategorizing: false } 
+            : act
+        )
+      );
+    }
+  };
+
+  // Función para renderizar las categorías
+  const renderCategories = (categories: ActivityCategory[]) => {
+    if (!categories || categories.length === 0) {
+      return <Text style={styles.noCategoriesText}>Sin categorías</Text>;
+    }
+
+    return (
+      <View style={styles.categoriesContainer}>
+        {categories.map((category, index) => (
+          <View key={index} style={styles.categoryBadge}>
+            <Text style={styles.categoryText}>
+              {category === 'scrapping' && '🔍 Investigación'}
+              {category === 'analisis' && '📊 Análisis'}
+              {category === 'administrativo' && '📁 Administrativo'}
+            </Text>
+          </View>
+        ))}
+      </View>
+    );
   };
 
   // Guardar actividades
@@ -297,6 +376,30 @@ const CollaboratorDetailScreen: React.FC<CollaboratorDetailScreenProps> = ({
                         numberOfLines={2}
                       />
                       
+                      <View style={styles.categoriesSection}>
+                        <View style={styles.categoriesHeader}>
+                          <Text style={styles.categoriesTitle}>Categorías:</Text>
+                          <TouchableOpacity
+                            style={[
+                              styles.categorizeButton,
+                              activity.isCategorizing && styles.disabledButton
+                            ]}
+                            onPress={() => handleCategorizeActivity(activity.id)}
+                            disabled={activity.isCategorizing || !activity.name}
+                          >
+                            {activity.isCategorizing ? (
+                              <ActivityIndicator size="small" color="#f8f8f2" />
+                            ) : (
+                              <Text style={styles.categorizeButtonText}>
+                                {activity.categories.length > 0 ? 'Recategorizar' : 'Categorizar'}
+                              </Text>
+                            )}
+                          </TouchableOpacity>
+                        </View>
+                        
+                        {renderCategories(activity.categories)}
+                      </View>
+                      
                       <View style={styles.activityActions}>
                         <TouchableOpacity
                           style={[
@@ -336,6 +439,12 @@ const CollaboratorDetailScreen: React.FC<CollaboratorDetailScreenProps> = ({
                           {activity.description}
                         </Text>
                       ) : null}
+                      
+                      {activity.categories && activity.categories.length > 0 && (
+                        <View style={styles.categoriesViewContainer}>
+                          {renderCategories(activity.categories)}
+                        </View>
+                      )}
                       
                       <Text style={styles.activityStatus}>
                         Estado: <Text style={activity.completed ? styles.completedText : styles.pendingText}>
@@ -619,6 +728,59 @@ const styles = StyleSheet.create({
     color: '#f8f8f2',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  categoriesSection: {
+    marginBottom: 15,
+  },
+  categoriesHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  categoriesTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#bd93f9',
+  },
+  categorizeButton: {
+    backgroundColor: '#6272a4',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  categorizeButtonText: {
+    color: '#f8f8f2',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  categoriesContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 10,
+  },
+  categoryBadge: {
+    backgroundColor: '#44475a',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    marginRight: 6,
+    marginBottom: 6,
+  },
+  categoryText: {
+    color: '#f8f8f2',
+    fontSize: 12,
+  },
+  noCategoriesText: {
+    color: '#6272a4',
+    fontStyle: 'italic',
+    fontSize: 12,
+    marginBottom: 10,
+  },
+  categoriesViewContainer: {
+    marginVertical: 8,
   },
 });
 
