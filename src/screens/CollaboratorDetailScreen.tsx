@@ -9,20 +9,33 @@ import {
   Animated,
   Easing,
   Alert,
-  ActivityIndicator
+  ActivityIndicator,
+  Modal,
+  Platform,
+  Switch
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { categorizeActivity, ActivityCategory } from '../services/openRouterService';
+import DateTimePickerModal from 'react-native-modal-datetime-picker';
 
 // Interfaces
 interface Activity {
   id: string;
   name: string;
   description: string;
-  completed: boolean;
+  status: 'active' | 'inactive' | 'scheduled';
   categories: ActivityCategory[];
   isCategorizing?: boolean;
+  schedule?: {
+    frequency: 'daily' | 'weekly' | 'biweekly' | 'monthly';
+    daysOfWeek?: number[];
+    dayOfMonth?: number;
+    startDate?: string;
+  };
+  duration?: number;
+  lastExecutionDate?: string;
+  nextExecutionDate?: string;
 }
 
 interface Collaborator {
@@ -52,6 +65,23 @@ const CollaboratorDetailScreen: React.FC<CollaboratorDetailScreenProps> = ({
   const [isEditingActivities, setIsEditingActivities] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  
+  // Estados nuevos para el modal de programación
+  const [scheduleModalVisible, setScheduleModalVisible] = useState(false);
+  const [currentActivityId, setCurrentActivityId] = useState<string | null>(null);
+  const [scheduleConfig, setScheduleConfig] = useState<{
+    frequency: 'daily' | 'weekly' | 'biweekly' | 'monthly';
+    daysOfWeek: number[];
+    dayOfMonth?: number;
+    startDate: Date;
+    duration: number;
+  }>({
+    frequency: 'daily',
+    daysOfWeek: [],
+    startDate: new Date(),
+    duration: 30
+  });
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   // Animaciones
   const fadeIn = useRef(new Animated.Value(0)).current;
@@ -105,7 +135,7 @@ const CollaboratorDetailScreen: React.FC<CollaboratorDetailScreenProps> = ({
       id: Date.now().toString(),
       name: '',
       description: '',
-      completed: false,
+      status: 'inactive',
       categories: []
     };
     
@@ -146,11 +176,141 @@ const CollaboratorDetailScreen: React.FC<CollaboratorDetailScreenProps> = ({
     setHasChanges(true);
   };
 
-  // Cambiar estado de completado
-  const toggleActivityCompleted = (id: string) => {
+  // Cambiar estado de la actividad
+  const toggleActivityStatus = (id: string) => {
     const updatedActivities = activities.map(activity => {
       if (activity.id === id) {
-        return { ...activity, completed: !activity.completed };
+        // Si no está programada, simplemente alterna entre activa e inactiva
+        const newStatus: 'active' | 'inactive' = 
+          activity.status === 'active' ? 'inactive' : 'active';
+        return { 
+          ...activity, 
+          status: newStatus
+        };
+      }
+      return activity;
+    });
+    
+    setActivities(updatedActivities);
+    setHasChanges(true);
+  };
+
+  // Nueva función para programar una actividad
+  const scheduleActivity = (id: string, scheduleData: Activity['schedule'], duration?: number) => {
+    const updatedActivities = activities.map(activity => {
+      if (activity.id === id) {
+        // Calcular la próxima fecha de ejecución basada en la programación
+        const nextDate = calculateNextExecutionDate(scheduleData);
+        
+        return { 
+          ...activity, 
+          status: 'scheduled' as const,
+          schedule: scheduleData,
+          duration: duration,
+          nextExecutionDate: nextDate
+        };
+      }
+      return activity;
+    });
+    
+    setActivities(updatedActivities);
+    setHasChanges(true);
+  };
+
+  // Función para calcular la próxima fecha de ejecución basada en la programación
+  const calculateNextExecutionDate = (schedule?: Activity['schedule']): string | undefined => {
+    if (!schedule || !schedule.startDate) return undefined;
+    
+    const startDate = new Date(schedule.startDate);
+    const now = new Date();
+    
+    // Si la fecha de inicio es futura, esa es la próxima ejecución
+    if (startDate > now) {
+      return startDate.toISOString();
+    }
+    
+    let nextDate = new Date(startDate);
+    
+    switch (schedule.frequency) {
+      case 'daily':
+        // Encuentra el próximo día
+        while (nextDate <= now) {
+          nextDate.setDate(nextDate.getDate() + 1);
+        }
+        break;
+        
+      case 'weekly':
+        // Si hay días específicos de la semana
+        if (schedule.daysOfWeek && schedule.daysOfWeek.length > 0) {
+          // Ordenar los días de la semana
+          const sortedDays = [...schedule.daysOfWeek].sort();
+          
+          // Encontrar el próximo día de la semana
+          let found = false;
+          while (!found) {
+            const currentDay = nextDate.getDay();
+            
+            // Encontrar el próximo día programado
+            const nextDayIndex = sortedDays.findIndex(day => day > currentDay);
+            
+            if (nextDayIndex >= 0) {
+              // Hay un día esta semana
+              const daysToAdd = sortedDays[nextDayIndex] - currentDay;
+              nextDate.setDate(nextDate.getDate() + daysToAdd);
+              found = nextDate > now;
+            } else {
+              // No hay más días esta semana, ir a la próxima
+              const daysToAdd = 7 - currentDay + sortedDays[0];
+              nextDate.setDate(nextDate.getDate() + daysToAdd);
+              found = nextDate > now;
+            }
+          }
+        } else {
+          // Sin días específicos, simplemente añadir 7 días
+          while (nextDate <= now) {
+            nextDate.setDate(nextDate.getDate() + 7);
+          }
+        }
+        break;
+        
+      case 'biweekly':
+        // Cada dos semanas
+        while (nextDate <= now) {
+          nextDate.setDate(nextDate.getDate() + 14);
+        }
+        break;
+        
+      case 'monthly':
+        // Si hay un día específico del mes
+        if (schedule.dayOfMonth) {
+          nextDate.setDate(schedule.dayOfMonth);
+          while (nextDate <= now) {
+            nextDate.setMonth(nextDate.getMonth() + 1);
+          }
+        } else {
+          // Sin día específico, simplemente añadir un mes
+          while (nextDate <= now) {
+            nextDate.setMonth(nextDate.getMonth() + 1);
+          }
+        }
+        break;
+    }
+    
+    return nextDate.toISOString();
+  };
+
+  // Registrar una ejecución de la actividad
+  const recordActivityExecution = (id: string) => {
+    const updatedActivities = activities.map(activity => {
+      if (activity.id === id) {
+        const now = new Date().toISOString();
+        const nextDate = activity.schedule ? calculateNextExecutionDate(activity.schedule) : undefined;
+        
+        return {
+          ...activity,
+          lastExecutionDate: now,
+          nextExecutionDate: nextDate
+        };
       }
       return activity;
     });
@@ -293,6 +453,134 @@ const CollaboratorDetailScreen: React.FC<CollaboratorDetailScreenProps> = ({
     }
   };
 
+  // Abrir el modal de programación para una actividad
+  const openScheduleModal = (id: string) => {
+    const activity = activities.find(act => act.id === id);
+    if (!activity) return;
+    
+    // Si la actividad ya tiene programación, usar esa configuración
+    if (activity.schedule) {
+      setScheduleConfig({
+        frequency: activity.schedule.frequency,
+        daysOfWeek: activity.schedule.daysOfWeek || [],
+        dayOfMonth: activity.schedule.dayOfMonth,
+        startDate: activity.schedule.startDate ? new Date(activity.schedule.startDate) : new Date(),
+        duration: activity.duration || 30
+      });
+    } else {
+      // Configuración predeterminada
+      setScheduleConfig({
+        frequency: 'daily',
+        daysOfWeek: [],
+        startDate: new Date(),
+        duration: 30
+      });
+    }
+    
+    setCurrentActivityId(id);
+    setScheduleModalVisible(true);
+  };
+  
+  // Guardar la programación
+  const saveSchedule = () => {
+    if (!currentActivityId) return;
+    
+    const scheduleData: Activity['schedule'] = {
+      frequency: scheduleConfig.frequency,
+      startDate: scheduleConfig.startDate.toISOString()
+    };
+    
+    // Agregar días de la semana si es semanal
+    if (scheduleConfig.frequency === 'weekly' && scheduleConfig.daysOfWeek.length > 0) {
+      scheduleData.daysOfWeek = scheduleConfig.daysOfWeek;
+    }
+    
+    // Agregar día del mes si es mensual
+    if (scheduleConfig.frequency === 'monthly' && scheduleConfig.dayOfMonth) {
+      scheduleData.dayOfMonth = scheduleConfig.dayOfMonth;
+    }
+    
+    scheduleActivity(currentActivityId, scheduleData, scheduleConfig.duration);
+    setScheduleModalVisible(false);
+  };
+  
+  // Cancelar la programación
+  const cancelSchedule = () => {
+    setScheduleModalVisible(false);
+    setCurrentActivityId(null);
+  };
+  
+  // Manejar cambio de fecha - actualizamos esta función para el nuevo DateTimePicker
+  const handleDateChange = (selectedDate: Date) => {
+    setShowDatePicker(false);
+    setScheduleConfig({
+      ...scheduleConfig,
+      startDate: selectedDate
+    });
+  };
+  
+  // Manejar selección de día de la semana
+  const toggleDayOfWeek = (day: number) => {
+    if (scheduleConfig.daysOfWeek.includes(day)) {
+      setScheduleConfig({
+        ...scheduleConfig,
+        daysOfWeek: scheduleConfig.daysOfWeek.filter(d => d !== day)
+      });
+    } else {
+      setScheduleConfig({
+        ...scheduleConfig,
+        daysOfWeek: [...scheduleConfig.daysOfWeek, day]
+      });
+    }
+  };
+  
+  // Función para renderizar la información de programación
+  const renderScheduleInfo = (activity: Activity) => {
+    if (!activity.schedule) return null;
+    
+    const getFrequencyText = () => {
+      switch (activity.schedule?.frequency) {
+        case 'daily': return 'Diaria';
+        case 'weekly': 
+          if (activity.schedule.daysOfWeek && activity.schedule.daysOfWeek.length > 0) {
+            const dayNames = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+            return `Semanal (${activity.schedule.daysOfWeek.map(d => dayNames[d]).join(', ')})`;
+          }
+          return 'Semanal';
+        case 'biweekly': return 'Quincenal';
+        case 'monthly': 
+          if (activity.schedule.dayOfMonth) {
+            return `Mensual (Día ${activity.schedule.dayOfMonth})`;
+          }
+          return 'Mensual';
+        default: return 'Programada';
+      }
+    };
+    
+    return (
+      <View style={styles.scheduleInfoContainer}>
+        <Text style={styles.scheduleTitle}>Programación:</Text>
+        <Text style={styles.scheduleText}>{getFrequencyText()}</Text>
+        
+        {activity.duration && (
+          <Text style={styles.scheduleDuration}>Duración: {activity.duration} minutos</Text>
+        )}
+        
+        {activity.nextExecutionDate && (
+          <Text style={styles.scheduleNextDate}>
+            Próxima ejecución: {new Date(activity.nextExecutionDate).toLocaleDateString()}
+          </Text>
+        )}
+        
+        {activity.lastExecutionDate && (
+          <Text style={styles.scheduleLastDate}>
+            Última ejecución: {new Date(activity.lastExecutionDate).toLocaleDateString()}
+          </Text>
+        )}
+      </View>
+    );
+  };
+
   // Renderizar la pantalla de detalles
   return (
     <View style={styles.container}>
@@ -405,20 +693,40 @@ const CollaboratorDetailScreen: React.FC<CollaboratorDetailScreenProps> = ({
                         <TouchableOpacity
                           style={[
                             styles.statusButton,
-                            activity.completed ? styles.completedButton : styles.pendingButton
+                            activity.status === 'active' ? styles.completedButton : styles.pendingButton
                           ]}
-                          onPress={() => toggleActivityCompleted(activity.id)}
+                          onPress={() => toggleActivityStatus(activity.id)}
                         >
                           <Text style={styles.statusButtonText}>
-                            {activity.completed ? 'Completada' : 'Pendiente'}
+                            {activity.status === 'active' ? 'Activa' : 'Inactiva'}
                           </Text>
                         </TouchableOpacity>
-                        
+
                         <TouchableOpacity
-                          style={styles.removeButton}
+                          style={styles.scheduleButton}
+                          onPress={() => openScheduleModal(activity.id)}
+                        >
+                          <Text style={styles.scheduleButtonText}>
+                            {activity.status === 'scheduled' ? 'Reprogramar' : 'Programar'}
+                          </Text>
+                        </TouchableOpacity>
+
+                        {activity.status === 'scheduled' && (
+                          <TouchableOpacity
+                            style={styles.recordButton}
+                            onPress={() => recordActivityExecution(activity.id)}
+                          >
+                            <Text style={styles.recordButtonText}>
+                              Registrar
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+
+                        <TouchableOpacity
+                          style={styles.deleteButton}
                           onPress={() => removeActivity(activity.id)}
                         >
-                          <Text style={styles.removeButtonText}>Eliminar</Text>
+                          <Text style={styles.deleteButtonText}>Eliminar</Text>
                         </TouchableOpacity>
                       </View>
                     </View>
@@ -430,7 +738,9 @@ const CollaboratorDetailScreen: React.FC<CollaboratorDetailScreenProps> = ({
                         <View
                           style={[
                             styles.statusIndicator,
-                            activity.completed ? styles.completedIndicator : styles.pendingIndicator
+                            activity.status === 'active' ? styles.activeIndicator : 
+                            activity.status === 'scheduled' ? styles.scheduledIndicator :
+                            styles.inactiveIndicator
                           ]}
                         />
                       </View>
@@ -447,9 +757,19 @@ const CollaboratorDetailScreen: React.FC<CollaboratorDetailScreenProps> = ({
                         </View>
                       )}
                       
+                      {activity.status === 'scheduled' && renderScheduleInfo(activity)}
+                      
                       <Text style={styles.activityStatus}>
-                        Estado: <Text style={activity.completed ? styles.completedText : styles.pendingText}>
-                          {activity.completed ? 'Completada' : 'Pendiente'}
+                        Estado: <Text 
+                          style={
+                            activity.status === 'active' ? styles.activeText : 
+                            activity.status === 'scheduled' ? styles.scheduledText :
+                            styles.inactiveText
+                          }
+                        >
+                          {activity.status === 'active' ? 'Activa' : 
+                           activity.status === 'scheduled' ? 'Programada' : 
+                           'Inactiva'}
                         </Text>
                       </Text>
                     </View>
@@ -500,6 +820,150 @@ const CollaboratorDetailScreen: React.FC<CollaboratorDetailScreenProps> = ({
           </TouchableOpacity>
         </Animated.View>
       </LinearGradient>
+
+      {/* Modal de programación */}
+      <Modal
+        visible={scheduleModalVisible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={cancelSchedule}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Programar Actividad</Text>
+            
+            <View style={styles.formGroup}>
+              <Text style={styles.formLabel}>Frecuencia:</Text>
+              <View style={styles.frequencyOptions}>
+                {['daily', 'weekly', 'biweekly', 'monthly'].map((freq) => (
+                  <TouchableOpacity
+                    key={freq}
+                    style={[
+                      styles.frequencyOption,
+                      scheduleConfig.frequency === freq && styles.frequencyOptionSelected
+                    ]}
+                    onPress={() => setScheduleConfig({
+                      ...scheduleConfig,
+                      frequency: freq as 'daily' | 'weekly' | 'biweekly' | 'monthly'
+                    })}
+                  >
+                    <Text 
+                      style={[
+                        styles.frequencyOptionText,
+                        scheduleConfig.frequency === freq && styles.frequencyOptionTextSelected
+                      ]}
+                    >
+                      {freq === 'daily' && 'Diaria'}
+                      {freq === 'weekly' && 'Semanal'}
+                      {freq === 'biweekly' && 'Quincenal'}
+                      {freq === 'monthly' && 'Mensual'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+            
+            {/* Selección de días de la semana para frecuencia semanal */}
+            {scheduleConfig.frequency === 'weekly' && (
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Días de la semana:</Text>
+                <View style={styles.daysContainer}>
+                  {['D', 'L', 'M', 'X', 'J', 'V', 'S'].map((day, index) => (
+                    <TouchableOpacity
+                      key={day}
+                      style={[
+                        styles.dayOption,
+                        scheduleConfig.daysOfWeek.includes(index) && styles.dayOptionSelected
+                      ]}
+                      onPress={() => toggleDayOfWeek(index)}
+                    >
+                      <Text 
+                        style={[
+                          styles.dayOptionText,
+                          scheduleConfig.daysOfWeek.includes(index) && styles.dayOptionTextSelected
+                        ]}
+                      >
+                        {day}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            )}
+            
+            {/* Selección de día del mes para frecuencia mensual */}
+            {scheduleConfig.frequency === 'monthly' && (
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Día del mes:</Text>
+                <TextInput
+                  style={styles.dayOfMonthInput}
+                  keyboardType="number-pad"
+                  value={scheduleConfig.dayOfMonth?.toString() || ''}
+                  onChangeText={(text) => setScheduleConfig({
+                    ...scheduleConfig,
+                    dayOfMonth: parseInt(text, 10) || undefined
+                  })}
+                  placeholder="Ej: 15"
+                  maxLength={2}
+                />
+              </View>
+            )}
+            
+            {/* Selección de fecha de inicio */}
+            <View style={styles.formGroup}>
+              <Text style={styles.formLabel}>Fecha de inicio:</Text>
+              <TouchableOpacity
+                style={styles.datePickerButton}
+                onPress={() => setShowDatePicker(true)}
+              >
+                <Text style={styles.datePickerButtonText}>
+                  {scheduleConfig.startDate.toLocaleDateString()}
+                </Text>
+              </TouchableOpacity>
+              
+              <DateTimePickerModal
+                isVisible={showDatePicker}
+                mode="date"
+                onConfirm={(date) => {
+                  handleDateChange(date);
+                }}
+                onCancel={() => setShowDatePicker(false)}
+                minimumDate={new Date()}
+              />
+            </View>
+            
+            {/* Duración */}
+            <View style={styles.formGroup}>
+              <Text style={styles.formLabel}>Duración (minutos):</Text>
+              <TextInput
+                style={styles.durationInput}
+                keyboardType="number-pad"
+                value={scheduleConfig.duration.toString()}
+                onChangeText={(text) => setScheduleConfig({
+                  ...scheduleConfig,
+                  duration: parseInt(text, 10) || 0
+                })}
+              />
+            </View>
+            
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalCancelButton}
+                onPress={cancelSchedule}
+              >
+                <Text style={styles.modalCancelButtonText}>Cancelar</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={styles.modalSaveButton}
+                onPress={saveSchedule}
+              >
+                <Text style={styles.modalSaveButtonText}>Guardar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -654,14 +1118,36 @@ const styles = StyleSheet.create({
     color: '#282a36',
     fontWeight: 'bold',
   },
-  removeButton: {
-    backgroundColor: '#ff5555',
+  scheduleButton: {
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 5,
+    minWidth: 100,
     alignItems: 'center',
   },
-  removeButtonText: {
+  scheduleButtonText: {
+    color: '#f8f8f2',
+    fontWeight: 'bold',
+  },
+  recordButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 5,
+    minWidth: 100,
+    alignItems: 'center',
+  },
+  recordButtonText: {
+    color: '#f8f8f2',
+    fontWeight: 'bold',
+  },
+  deleteButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 5,
+    minWidth: 100,
+    alignItems: 'center',
+  },
+  deleteButtonText: {
     color: '#f8f8f2',
     fontWeight: 'bold',
   },
@@ -686,10 +1172,13 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     marginLeft: 8,
   },
-  completedIndicator: {
+  activeIndicator: {
     backgroundColor: '#50fa7b',
   },
-  pendingIndicator: {
+  scheduledIndicator: {
+    backgroundColor: '#8be9fd',
+  },
+  inactiveIndicator: {
     backgroundColor: '#ff79c6',
   },
   activityDescription: {
@@ -700,11 +1189,15 @@ const styles = StyleSheet.create({
     color: '#6272a4',
     fontSize: 12,
   },
-  completedText: {
+  activeText: {
     color: '#50fa7b',
     fontWeight: 'bold',
   },
-  pendingText: {
+  scheduledText: {
+    color: '#8be9fd',
+    fontWeight: 'bold',
+  },
+  inactiveText: {
     color: '#ff79c6',
     fontWeight: 'bold',
   },
@@ -782,6 +1275,148 @@ const styles = StyleSheet.create({
   },
   categoriesViewContainer: {
     marginVertical: 8,
+  },
+  scheduleInfoContainer: {
+    marginBottom: 10,
+  },
+  scheduleTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#bd93f9',
+  },
+  scheduleText: {
+    color: '#f8f8f2',
+    fontSize: 12,
+  },
+  scheduleDuration: {
+    color: '#6272a4',
+    fontSize: 12,
+  },
+  scheduleNextDate: {
+    color: '#8be9fd',
+    fontSize: 12,
+  },
+  scheduleLastDate: {
+    color: '#ff79c6',
+    fontSize: 12,
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#282a36',
+    padding: 20,
+    borderRadius: 10,
+    width: '80%',
+    maxHeight: '80%',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#f8f8f2',
+    marginBottom: 20,
+  },
+  formGroup: {
+    marginBottom: 15,
+  },
+  formLabel: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#bd93f9',
+  },
+  frequencyOptions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  frequencyOption: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  frequencyOptionSelected: {
+    backgroundColor: '#6272a4',
+  },
+  frequencyOptionText: {
+    color: '#f8f8f2',
+    fontSize: 12,
+  },
+  frequencyOptionTextSelected: {
+    fontWeight: 'bold',
+  },
+  daysContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  dayOption: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dayOptionSelected: {
+    backgroundColor: '#6272a4',
+  },
+  dayOptionText: {
+    color: '#f8f8f2',
+    fontSize: 12,
+  },
+  dayOptionTextSelected: {
+    fontWeight: 'bold',
+  },
+  dayOfMonthInput: {
+    backgroundColor: '#44475a',
+    borderRadius: 5,
+    padding: 10,
+    color: '#f8f8f2',
+  },
+  datePickerButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  datePickerButtonText: {
+    color: '#f8f8f2',
+    fontSize: 12,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 20,
+  },
+  modalCancelButton: {
+    backgroundColor: '#ff5555',
+    padding: 12,
+    borderRadius: 5,
+    alignItems: 'center',
+  },
+  modalCancelButtonText: {
+    color: '#f8f8f2',
+    fontWeight: 'bold',
+  },
+  modalSaveButton: {
+    backgroundColor: '#50fa7b',
+    padding: 12,
+    borderRadius: 5,
+    alignItems: 'center',
+  },
+  modalSaveButtonText: {
+    color: '#282a36',
+    fontWeight: 'bold',
+  },
+  durationInput: {
+    backgroundColor: '#44475a',
+    borderRadius: 5,
+    padding: 10,
+    color: '#f8f8f2',
+    marginTop: 5,
   },
 });
 
