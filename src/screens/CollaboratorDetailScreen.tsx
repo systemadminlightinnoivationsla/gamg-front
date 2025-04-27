@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
-import { categorizeActivity, ActivityCategory } from '../services/openRouterService';
+import { categorizeActivity, ActivityCategory, analyzeWorkflow, WorkflowMessage } from '../services/openRouterService';
 import DateTimePickerModal from 'react-native-modal-datetime-picker';
 
 // Interfaces
@@ -36,6 +36,9 @@ interface Activity {
   duration?: number;
   lastExecutionDate?: string;
   nextExecutionDate?: string;
+  // Nuevos campos para el flujo de trabajo
+  workflowMessages?: WorkflowMessage[];
+  isAnalyzingWorkflow?: boolean;
 }
 
 interface Collaborator {
@@ -82,6 +85,12 @@ const CollaboratorDetailScreen: React.FC<CollaboratorDetailScreenProps> = ({
     duration: 30
   });
   const [showDatePicker, setShowDatePicker] = useState(false);
+
+  // Estados nuevos para el flujo de trabajo
+  const [workflowModalVisible, setWorkflowModalVisible] = useState(false);
+  const [workflowActivityId, setWorkflowActivityId] = useState<string | null>(null);
+  const [workflowUserInput, setWorkflowUserInput] = useState('');
+  const [isProcessingWorkflow, setIsProcessingWorkflow] = useState(false);
 
   // Animaciones
   const fadeIn = useRef(new Animated.Value(0)).current;
@@ -361,6 +370,167 @@ const CollaboratorDetailScreen: React.FC<CollaboratorDetailScreenProps> = ({
             : act
         )
       );
+    }
+  };
+
+  // Nueva función para abrir el modal de flujo de trabajo
+  const openWorkflowModal = (id: string) => {
+    const activity = activities.find(act => act.id === id);
+    if (!activity) return;
+    
+    setWorkflowActivityId(id);
+    setWorkflowModalVisible(true);
+    
+    // Si es la primera vez, iniciar automáticamente el análisis
+    if (!activity.workflowMessages || activity.workflowMessages.length === 0) {
+      startWorkflowAnalysis(id);
+    }
+  };
+
+  // Iniciar el análisis del flujo de trabajo
+  const startWorkflowAnalysis = async (id: string) => {
+    const activity = activities.find(act => act.id === id);
+    if (!activity) return;
+    
+    // Marcar la actividad como en proceso de análisis
+    setActivities(
+      activities.map(act => 
+        act.id === id 
+          ? { ...act, isAnalyzingWorkflow: true, workflowMessages: activity.workflowMessages || [] } 
+          : act
+      )
+    );
+    
+    setIsProcessingWorkflow(true);
+    
+    try {
+      const response = await analyzeWorkflow(
+        activity.name, 
+        activity.description, 
+        activity.categories,
+        activity.workflowMessages || []
+      );
+      
+      // Añadir respuesta al historial de mensajes
+      const updatedMessages = [
+        ...(activity.workflowMessages || []),
+        {
+          role: 'assistant',
+          content: response
+        } as WorkflowMessage
+      ];
+      
+      // Actualizar la actividad con el nuevo mensaje
+      setActivities(
+        activities.map(act => 
+          act.id === id 
+            ? { 
+                ...act, 
+                workflowMessages: updatedMessages, 
+                isAnalyzingWorkflow: false 
+              } 
+            : act
+        )
+      );
+      
+      setHasChanges(true);
+    } catch (error) {
+      console.error('Error al analizar el flujo de trabajo:', error);
+      Alert.alert('Error', 'No se pudo analizar el flujo de trabajo');
+      
+      // Quitar la marca de análisis
+      setActivities(
+        activities.map(act => 
+          act.id === id 
+            ? { ...act, isAnalyzingWorkflow: false } 
+            : act
+        )
+      );
+    } finally {
+      setIsProcessingWorkflow(false);
+    }
+  };
+
+  // Enviar mensaje de usuario al flujo de trabajo
+  const sendWorkflowMessage = async () => {
+    if (!workflowActivityId || !workflowUserInput.trim()) return;
+    
+    const activity = activities.find(act => act.id === workflowActivityId);
+    if (!activity) return;
+    
+    // Añadir mensaje del usuario
+    const userMessage: WorkflowMessage = {
+      role: 'user',
+      content: workflowUserInput
+    };
+    
+    const updatedMessages = [
+      ...(activity.workflowMessages || []),
+      userMessage
+    ];
+    
+    // Actualizar actividad con el mensaje del usuario
+    setActivities(
+      activities.map(act => 
+        act.id === workflowActivityId 
+          ? { 
+              ...act, 
+              workflowMessages: updatedMessages,
+              isAnalyzingWorkflow: true 
+            } 
+          : act
+      )
+    );
+    
+    // Limpiar input
+    setWorkflowUserInput('');
+    setIsProcessingWorkflow(true);
+    
+    try {
+      // Enviar al modelo para obtener respuesta
+      const response = await analyzeWorkflow(
+        activity.name, 
+        activity.description, 
+        activity.categories,
+        updatedMessages
+      );
+      
+      // Añadir respuesta del asistente
+      const assistantMessage: WorkflowMessage = {
+        role: 'assistant',
+        content: response
+      };
+      
+      const finalMessages = [...updatedMessages, assistantMessage];
+      
+      // Actualizar actividad con la respuesta
+      setActivities(
+        activities.map(act => 
+          act.id === workflowActivityId 
+            ? { 
+                ...act, 
+                workflowMessages: finalMessages,
+                isAnalyzingWorkflow: false 
+              } 
+            : act
+        )
+      );
+      
+      setHasChanges(true);
+    } catch (error) {
+      console.error('Error al procesar mensaje del flujo de trabajo:', error);
+      Alert.alert('Error', 'No se pudo procesar el mensaje');
+      
+      // Quitar la marca de análisis
+      setActivities(
+        activities.map(act => 
+          act.id === workflowActivityId 
+            ? { ...act, isAnalyzingWorkflow: false } 
+            : act
+        )
+      );
+    } finally {
+      setIsProcessingWorkflow(false);
     }
   };
 
@@ -728,6 +898,17 @@ const CollaboratorDetailScreen: React.FC<CollaboratorDetailScreenProps> = ({
                         >
                           <Text style={styles.deleteButtonText}>Eliminar</Text>
                         </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={styles.workflowButton}
+                          onPress={() => openWorkflowModal(activity.id)}
+                        >
+                          <Text style={styles.workflowButtonText}>
+                            {activity.workflowMessages && activity.workflowMessages.length > 0
+                              ? 'Ver flujo'
+                              : 'Analizar flujo'}
+                          </Text>
+                        </TouchableOpacity>
                       </View>
                     </View>
                   ) : (
@@ -772,6 +953,16 @@ const CollaboratorDetailScreen: React.FC<CollaboratorDetailScreenProps> = ({
                            'Inactiva'}
                         </Text>
                       </Text>
+
+                      {/* Botón para ver detalles del flujo */}
+                      {activity.workflowMessages && activity.workflowMessages.length > 0 && (
+                        <TouchableOpacity
+                          style={styles.viewWorkflowButton}
+                          onPress={() => openWorkflowModal(activity.id)}
+                        >
+                          <Text style={styles.viewWorkflowButtonText}>Ver detalles del flujo de trabajo</Text>
+                        </TouchableOpacity>
+                      )}
                     </View>
                   )}
                 </View>
@@ -819,6 +1010,84 @@ const CollaboratorDetailScreen: React.FC<CollaboratorDetailScreenProps> = ({
             <Text style={styles.backButtonText}>Volver al simulador</Text>
           </TouchableOpacity>
         </Animated.View>
+
+        {/* Nuevo modal para el flujo de trabajo */}
+        <Modal
+          animationType="slide"
+          transparent={true}
+          visible={workflowModalVisible}
+          onRequestClose={() => {
+            setWorkflowModalVisible(false);
+          }}
+        >
+          <View style={styles.centeredView}>
+            <View style={styles.workflowModalView}>
+              <LinearGradient
+                colors={['#282a36', '#44475a']}
+                style={styles.modalGradient}
+              >
+                <Text style={styles.modalTitle}>Detalles del Flujo de la Actividad</Text>
+                
+                {workflowActivityId && (
+                  <View style={styles.workflowContainer}>
+                    <ScrollView style={styles.workflowMessagesContainer}>
+                      {activities.find(a => a.id === workflowActivityId)?.workflowMessages?.map((msg, index) => (
+                        <View 
+                          key={index} 
+                          style={[
+                            styles.workflowMessage,
+                            msg.role === 'user' ? styles.userMessage : styles.assistantMessage
+                          ]}
+                        >
+                          <Text style={styles.workflowMessageText}>
+                            {msg.content}
+                          </Text>
+                        </View>
+                      ))}
+                      
+                      {activities.find(a => a.id === workflowActivityId)?.isAnalyzingWorkflow && (
+                        <View style={styles.loadingContainer}>
+                          <ActivityIndicator size="small" color="#bd93f9" />
+                          <Text style={styles.loadingText}>Analizando...</Text>
+                        </View>
+                      )}
+                    </ScrollView>
+                    
+                    <View style={styles.workflowInputContainer}>
+                      <TextInput
+                        style={styles.workflowInput}
+                        value={workflowUserInput}
+                        onChangeText={setWorkflowUserInput}
+                        placeholder="Proporciona más detalles o haz preguntas..."
+                        placeholderTextColor="#6272a4"
+                        multiline={true}
+                        editable={!isProcessingWorkflow}
+                      />
+                      
+                      <TouchableOpacity
+                        style={[
+                          styles.sendButton,
+                          (!workflowUserInput.trim() || isProcessingWorkflow) && styles.disabledButton
+                        ]}
+                        onPress={sendWorkflowMessage}
+                        disabled={!workflowUserInput.trim() || isProcessingWorkflow}
+                      >
+                        <Text style={styles.sendButtonText}>Enviar</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+                
+                <TouchableOpacity
+                  style={styles.closeButton}
+                  onPress={() => setWorkflowModalVisible(false)}
+                >
+                  <Text style={styles.closeButtonText}>Cerrar</Text>
+                </TouchableOpacity>
+              </LinearGradient>
+            </View>
+          </View>
+        </Modal>
       </LinearGradient>
 
       {/* Modal de programación */}
@@ -1314,10 +1583,11 @@ const styles = StyleSheet.create({
     maxHeight: '80%',
   },
   modalTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#f8f8f2',
     marginBottom: 20,
+    textAlign: 'center',
   },
   formGroup: {
     marginBottom: 15,
@@ -1417,6 +1687,103 @@ const styles = StyleSheet.create({
     padding: 10,
     color: '#f8f8f2',
     marginTop: 5,
+  },
+  workflowModalView: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: 'transparent',
+  },
+  modalGradient: {
+    flex: 1,
+    padding: 20,
+  },
+  workflowContainer: {
+    flex: 1,
+    padding: 20,
+  },
+  workflowMessagesContainer: {
+    flex: 1,
+  },
+  workflowMessage: {
+    padding: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#44475a',
+  },
+  userMessage: {
+    backgroundColor: '#44475a',
+  },
+  assistantMessage: {
+    backgroundColor: '#6272a4',
+  },
+  workflowMessageText: {
+    color: '#f8f8f2',
+  },
+  workflowInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  workflowInput: {
+    flex: 1,
+    backgroundColor: '#44475a',
+    borderRadius: 5,
+    padding: 10,
+    color: '#f8f8f2',
+  },
+  sendButton: {
+    padding: 12,
+    borderRadius: 5,
+    backgroundColor: '#50fa7b',
+    alignItems: 'center',
+  },
+  sendButtonText: {
+    color: '#282a36',
+    fontWeight: 'bold',
+  },
+  closeButton: {
+    backgroundColor: '#ff5555',
+    padding: 12,
+    borderRadius: 5,
+    alignItems: 'center',
+  },
+  closeButtonText: {
+    color: '#f8f8f2',
+    fontWeight: 'bold',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    color: '#f8f8f2',
+    fontSize: 14,
+  },
+  viewWorkflowButton: {
+    backgroundColor: '#6272a4',
+    padding: 12,
+    borderRadius: 5,
+    alignItems: 'center',
+  },
+  viewWorkflowButtonText: {
+    color: '#f8f8f2',
+    fontWeight: 'bold',
+  },
+  centeredView: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  workflowButton: {
+    padding: 12,
+    borderRadius: 5,
+    backgroundColor: '#6272a4',
+    alignItems: 'center',
+  },
+  workflowButtonText: {
+    color: '#f8f8f2',
+    fontWeight: 'bold',
   },
 });
 

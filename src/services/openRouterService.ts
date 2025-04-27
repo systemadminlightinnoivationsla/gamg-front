@@ -9,6 +9,12 @@ const MODEL = 'deepseek/deepseek-chat-v3-0324:free';
 // Categorías disponibles
 export type ActivityCategory = 'scrapping' | 'analisis' | 'administrativo' | 'asistente';
 
+// Estructura para el detalle del flujo de actividad
+export interface WorkflowMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 /**
  * Analiza el texto de una actividad para determinar sus categorías
  */
@@ -118,5 +124,92 @@ export const categorizeActivity = async (activityName: string, activityDescripti
   } catch (error) {
     console.error('Error al categorizar la actividad:', error);
     return [];
+  }
+};
+
+/**
+ * Analiza y genera el detalle del flujo de trabajo para una actividad
+ * Permite la comunicación continua con el modelo para refinar el flujo de trabajo
+ */
+export const analyzeWorkflow = async (
+  activityName: string, 
+  activityDescription: string, 
+  categories: ActivityCategory[],
+  previousMessages: WorkflowMessage[] = []
+): Promise<string> => {
+  try {
+    // Preparar mensajes del sistema y contexto
+    const systemMessage = {
+      role: 'system',
+      content: `Eres un experto en procesos de trabajo y validación de flujos. 
+      Tu tarea es diagramar textualmente el flujo completo del proceso para realizar una actividad específica.
+      
+      Debes generar una descripción detallada que incluya:
+      1. Los pasos concretos para ejecutar la actividad
+      2. Las interfaces o herramientas que se deben utilizar
+      3. Quién debe participar en cada paso
+      4. Cómo validar que la actividad se ha completado correctamente
+      5. Cuáles son los resultados esperados
+      
+      Si necesitas más información, haz preguntas específicas al usuario para entender mejor el contexto.
+      Sé detallado y específico en tus respuestas, enfocándote en el flujo de trabajo práctico.`
+    };
+
+    // Contexto inicial si no hay mensajes previos
+    const initialUserMessage = {
+      role: 'user',
+      content: `Necesito que me ayudes a diagramar el flujo de trabajo para esta actividad:
+      
+      Nombre: ${activityName}
+      Descripción: ${activityDescription || 'No disponible'}
+      Categorías: ${categories.join(', ')}
+      
+      Por favor, describe en detalle el flujo del proceso y cómo se debe validar.`
+    };
+
+    // Construir los mensajes para la API
+    let messages = [systemMessage];
+    
+    if (previousMessages.length === 0) {
+      // Si es la primera interacción, usar el mensaje inicial
+      messages.push(initialUserMessage as any);
+    } else {
+      // Si hay conversación previa, incluirla
+      messages = [...messages, ...previousMessages.map(msg => ({
+        role: msg.role,
+        content: msg.content
+      }))];
+    }
+
+    // Realizar la petición a OpenRouter
+    const response = await fetch(OPENROUTER_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+        'HTTP-Referer': 'https://gamg-app.com'
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        messages: messages
+      })
+    });
+
+    // Parsear la respuesta como JSON
+    const data = await response.json();
+
+    // Extraer la respuesta del modelo
+    const content = data.choices[0]?.message?.content;
+    
+    if (!content) {
+      console.error('No se recibió contenido del modelo');
+      return 'Error: No se pudo generar el flujo de trabajo.';
+    }
+
+    return content;
+    
+  } catch (error) {
+    console.error('Error al analizar el flujo de trabajo:', error);
+    return 'Error: Se produjo un problema al analizar el flujo de trabajo.';
   }
 }; 
