@@ -218,6 +218,7 @@ const CollaboratorDetailScreen: React.FC<CollaboratorDetailScreenProps> = ({
               {category === 'scrapping' && '🔍 Investigación'}
               {category === 'analisis' && '📊 Análisis'}
               {category === 'administrativo' && '📁 Administrativo'}
+              {category === 'asistente' && '✉️ Asistente'}
             </Text>
           </View>
         ))}

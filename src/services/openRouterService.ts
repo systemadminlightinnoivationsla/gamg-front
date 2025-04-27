@@ -7,7 +7,7 @@ const OPENROUTER_API_KEY = 'sk-or-v1-a2d41ad37002550e8f85cfafa4ce95fd95306d97d79
 const MODEL = 'deepseek/deepseek-chat-v3-0324:free';
 
 // Categorías disponibles
-export type ActivityCategory = 'scrapping' | 'analisis' | 'administrativo';
+export type ActivityCategory = 'scrapping' | 'analisis' | 'administrativo' | 'asistente';
 
 /**
  * Analiza el texto de una actividad para determinar sus categorías
@@ -30,14 +30,24 @@ export const categorizeActivity = async (activityName: string, activityDescripti
           {
             role: 'system',
             content: `Eres un asistente especializado en categorizar actividades organizacionales. 
-            Debes analizar el texto de una actividad y determinar a qué categorías pertenece.
+            Debes analizar el texto de una actividad y determinar a qué categorías pertenece. IMPORTANTE: Una actividad puede pertenecer a MÚLTIPLES categorías a la vez si cumple con varios criterios.
+            
             Las categorías posibles son:
             - scrapping: actividades relacionadas con investigación en la web, búsqueda de información, etc.
             - analisis: actividades relacionadas con generar resúmenes, analizar datos o información sobre un tema determinado.
             - administrativo: actividades relacionadas con recursos humanos, gestión organizacional, etc.
+            - asistente: CUALQUIER actividad relacionada con enviar emails, agendar reuniones, redactar documentos, o tareas típicas de un asistente personal.
             
-            Una actividad puede pertenecer a una o más categorías. Responde SOLO con un array de categorías en formato JSON.
-            Ejemplo: ["scrapping", "analisis"] o ["administrativo"] o ["scrapping", "administrativo", "analisis"]`
+            EJEMPLOS:
+            - "Enviar un email a clientes" → ["asistente"]
+            - "Facturación clientes" → ["administrativo"]
+            - "Enviar facturas por email" → ["administrativo", "asistente"]
+            - "Investigar nuevos proveedores" → ["scrapping"]
+            - "Analizar ventas del mes" → ["analisis"]
+            - "Redactar informes y enviar por email" → ["asistente", "analisis"]
+            
+            Responde SOLO con un array de categorías en formato JSON, sin explicaciones adicionales.
+            Ejemplo: ["scrapping", "analisis"] o ["administrativo"] o ["administrativo", "asistente"]`
           },
           {
             role: 'user',
@@ -76,13 +86,29 @@ export const categorizeActivity = async (activityName: string, activityDescripti
           if (content.toLowerCase().includes('scrapping')) categories.push('scrapping');
           if (content.toLowerCase().includes('analisis')) categories.push('analisis');
           if (content.toLowerCase().includes('administrativo')) categories.push('administrativo');
+          if (content.toLowerCase().includes('asistente')) categories.push('asistente');
           categoriesArray = categories;
         }
       }
       
+      // Aplicar reglas de negocio adicionales para asegurar la correcta categorización
+      const activityText = (activityName + ' ' + (activityDescription || '')).toLowerCase();
+      
+      // Si menciona email, reunión o documento, asegurar que tenga categoría asistente
+      if ((activityText.includes('email') || 
+           activityText.includes('correo') || 
+           activityText.includes('reunion') || 
+           activityText.includes('reunión') || 
+           activityText.includes('documento') || 
+           activityText.includes('redacta') || 
+           activityText.includes('agenda')) && 
+          !categoriesArray.includes('asistente')) {
+        categoriesArray.push('asistente');
+      }
+      
       // Filtrar solo categorías válidas
       return categoriesArray.filter(cat => 
-        ['scrapping', 'analisis', 'administrativo'].includes(cat)
+        ['scrapping', 'analisis', 'administrativo', 'asistente'].includes(cat)
       ) as ActivityCategory[];
       
     } catch (error) {
