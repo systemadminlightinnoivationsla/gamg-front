@@ -1030,6 +1030,10 @@ const CollaboratorDetailScreen: React.FC<CollaboratorDetailScreenProps> = ({
                 
                 {workflowActivityId && (
                   <View style={styles.workflowContainer}>
+                    <Text style={styles.workflowActivityName}>
+                      {activities.find(a => a.id === workflowActivityId)?.name}
+                    </Text>
+                    
                     <ScrollView style={styles.workflowMessagesContainer}>
                       {activities.find(a => a.id === workflowActivityId)?.workflowMessages?.map((msg, index) => (
                         <View 
@@ -1052,6 +1056,43 @@ const CollaboratorDetailScreen: React.FC<CollaboratorDetailScreenProps> = ({
                         </View>
                       )}
                     </ScrollView>
+                    
+                    {/* Botones de texto predeterminado */}
+                    <View style={styles.predefinedButtonsContainer}>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                        <TouchableOpacity 
+                          style={styles.predefinedButton}
+                          onPress={() => setWorkflowUserInput("Mantén todo el flujo pero cambia que...")}
+                          disabled={isProcessingWorkflow}
+                        >
+                          <Text style={styles.predefinedButtonText}>📝 Modificar</Text>
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity 
+                          style={styles.predefinedButton}
+                          onPress={() => setWorkflowUserInput("Cambia todo respecto a...")}
+                          disabled={isProcessingWorkflow}
+                        >
+                          <Text style={styles.predefinedButtonText}>🔄 Cambiar</Text>
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity 
+                          style={styles.predefinedButton}
+                          onPress={() => setWorkflowUserInput("Perfecto así está correcto! dame el flujo completo final")}
+                          disabled={isProcessingWorkflow}
+                        >
+                          <Text style={styles.predefinedButtonText}>✅ Confirmar</Text>
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity 
+                          style={styles.predefinedButton}
+                          onPress={() => setWorkflowUserInput("Excelente así está completo el flujo ahora dame el texto completo en formato de flujo")}
+                          disabled={isProcessingWorkflow}
+                        >
+                          <Text style={styles.predefinedButtonText}>📋 Completo</Text>
+                        </TouchableOpacity>
+                      </ScrollView>
+                    </View>
                     
                     <View style={styles.workflowInputContainer}>
                       <TextInput
@@ -1703,20 +1744,29 @@ const styles = StyleSheet.create({
   },
   workflowMessagesContainer: {
     flex: 1,
+    backgroundColor: '#21222C',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 10,
   },
   workflowMessage: {
-    padding: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#44475a',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 8,
   },
   userMessage: {
     backgroundColor: '#44475a',
+    alignSelf: 'flex-end',
+    marginLeft: 20,
   },
   assistantMessage: {
     backgroundColor: '#6272a4',
+    alignSelf: 'flex-start',
+    marginRight: 20,
   },
   workflowMessageText: {
     color: '#f8f8f2',
+    lineHeight: 20,
   },
   workflowInputContainer: {
     flexDirection: 'row',
@@ -1784,6 +1834,34 @@ const styles = StyleSheet.create({
   workflowButtonText: {
     color: '#f8f8f2',
     fontWeight: 'bold',
+  },
+  predefinedButtonsContainer: {
+    marginVertical: 10,
+  },
+  predefinedButton: {
+    padding: 10,
+    borderRadius: 20,
+    backgroundColor: '#6272a4',
+    marginRight: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    minWidth: 85,
+    alignItems: 'center',
+  },
+  predefinedButtonText: {
+    color: '#f8f8f2',
+    fontWeight: 'bold',
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  workflowActivityName: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#f8f8f2',
+    marginBottom: 10,
   },
 });
 

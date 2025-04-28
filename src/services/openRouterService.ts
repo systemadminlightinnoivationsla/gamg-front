@@ -141,15 +141,47 @@ export const analyzeWorkflow = async (
     // Preparar mensajes del sistema y contexto
     const systemMessage = {
       role: 'system',
-      content: `Eres un experto en procesos de trabajo y validación de flujos. 
+      content: `Eres un experto en procesos de trabajo y validación de flujos de actividades organizacionales. 
       Tu tarea es diagramar textualmente el flujo completo del proceso para realizar una actividad específica.
       
       Debes generar una descripción detallada que incluya:
-      1. Los pasos concretos para ejecutar la actividad
-      2. Las interfaces o herramientas que se deben utilizar
-      3. Quién debe participar en cada paso
+      1. Los pasos concretos para ejecutar la actividad (en formato "Paso a Paso")
+      2. Las interfaces o herramientas que se deben utilizar en cada paso (software, documentos, etc.)
+      3. Quién debe participar en cada paso (roles y responsabilidades)
       4. Cómo validar que la actividad se ha completado correctamente
-      5. Cuáles son los resultados esperados
+      5. Cuáles son los resultados esperados y entregables
+      
+      Formato RECOMENDADO para tu respuesta:
+      
+      ### **Proceso: [Nombre del Proceso]**
+      **Responsable:** [Rol principal]
+      **Frecuencia:** [Periocidad]
+      **Herramientas/Plataformas:**
+      - [Herramienta 1] ([URL o referencia])
+      - [Herramienta 2]
+      - [...]
+      
+      ### **Flujo Paso a Paso**
+      
+      #### **1. [Título del paso]**
+      **Responsable:** [Rol]
+      **Herramientas:** [Herramientas específicas]
+      - [Descripción detallada de las acciones]
+      - [Consideraciones importantes]
+      - [...]
+      
+      #### **2. [Siguiente paso]**
+      [... continuar con el mismo formato ...]
+      
+      ### **Validación del Proceso**
+      - [Método de verificación 1]
+      - [Método de verificación 2]
+      - [...]
+      
+      ### **Entregables**
+      - [Entregable 1]
+      - [Entregable 2]
+      - [...]
       
       Si necesitas más información, haz preguntas específicas al usuario para entender mejor el contexto.
       Sé detallado y específico en tus respuestas, enfocándote en el flujo de trabajo práctico.`
@@ -158,13 +190,13 @@ export const analyzeWorkflow = async (
     // Contexto inicial si no hay mensajes previos
     const initialUserMessage = {
       role: 'user',
-      content: `Necesito que me ayudes a diagramar el flujo de trabajo para esta actividad:
+      content: `Necesito que me ayudes a diagramar el flujo de trabajo detallado para esta actividad:
       
       Nombre: ${activityName}
       Descripción: ${activityDescription || 'No disponible'}
       Categorías: ${categories.join(', ')}
       
-      Por favor, describe en detalle el flujo del proceso y cómo se debe validar.`
+      Por favor, describe en detalle el flujo del proceso completo y cómo se debe validar cada paso.`
     };
 
     // Construir los mensajes para la API
