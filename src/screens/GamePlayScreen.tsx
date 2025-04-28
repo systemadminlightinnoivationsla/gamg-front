@@ -244,10 +244,12 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
       
       setActivities(allActivities);
       
-      // Filtrar actividades que sean de tipo 'asistente' o 'administrativo'
+      // Filtrar actividades que sean de cualquier categoría
       const filtered = allActivities.filter(activity => 
         activity.categories.includes('asistente') || 
-        activity.categories.includes('administrativo')
+        activity.categories.includes('administrativo') ||
+        activity.categories.includes('scrapping') ||
+        activity.categories.includes('analisis')
       );
       
       setFilteredActivities(filtered);
@@ -1684,7 +1686,7 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
               style={styles.modalGradient}
             >
               <Text style={styles.modalTitle}>Navegador de Actividades</Text>
-              <Text style={styles.modalSubtitle}>Actividades administrativas y de asistente</Text>
+              <Text style={styles.modalSubtitle}>Actividades administrativas, de asistente, investigación y análisis</Text>
               
               {isLoadingActivities ? (
                 <View style={styles.loadingContainer}>
@@ -1693,7 +1695,7 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
                 </View>
               ) : filteredActivities.length === 0 ? (
                 <View style={styles.emptyContainer}>
-                  <Text style={styles.emptyText}>No hay actividades de tipo administrativo o asistente</Text>
+                  <Text style={styles.emptyText}>No hay actividades disponibles en ninguna categoría</Text>
                 </View>
               ) : (
                 <ScrollView style={styles.activitiesList} contentContainerStyle={styles.activitiesListContent}>
@@ -1725,13 +1727,14 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
                         
                         <View style={styles.categoriesContainer}>
                           {activity.categories.map((category, index) => (
-                            category === 'administrativo' || category === 'asistente' ? (
-                              <View key={index} style={styles.categoryBadge}>
-                                <Text style={styles.categoryText}>
-                                  {category === 'administrativo' ? '📁 Admin' : '✉️ Asistente'}
-                                </Text>
-                              </View>
-                            ) : null
+                            <View key={index} style={styles.categoryBadge}>
+                              <Text style={styles.categoryText}>
+                                {category === 'administrativo' ? '📁 Admin' : 
+                                 category === 'asistente' ? '✉️ Asistente' :
+                                 category === 'scrapping' ? '🔍 Investigación' :
+                                 category === 'analisis' ? '📊 Análisis' : category}
+                              </Text>
+                            </View>
                           ))}
                         </View>
                       </View>
