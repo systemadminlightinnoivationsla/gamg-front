@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useContext, useCallback } from 'react';
 import {
   StyleSheet,
   View,
@@ -12,7 +12,10 @@ import {
   ActivityIndicator,
   Modal,
   Platform,
-  Switch
+  Switch,
+  Linking,
+  Image,
+  FlatList
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -91,6 +94,13 @@ const CollaboratorDetailScreen: React.FC<CollaboratorDetailScreenProps> = ({
   const [workflowActivityId, setWorkflowActivityId] = useState<string | null>(null);
   const [workflowUserInput, setWorkflowUserInput] = useState('');
   const [isProcessingWorkflow, setIsProcessingWorkflow] = useState(false);
+  const [extractedUrls, setExtractedUrls] = useState<string[]>([]);
+  const [showUrlDialog, setShowUrlDialog] = useState(false);
+  const [selectedUrl, setSelectedUrl] = useState<string>('');
+  const [editingUrl, setEditingUrl] = useState<string>('');
+  const [isEditingUrl, setIsEditingUrl] = useState<boolean>(false);
+  const [customUrl, setCustomUrl] = useState<string>('');
+  const [showAddCustomUrl, setShowAddCustomUrl] = useState<boolean>(false);
 
   // Animaciones
   const fadeIn = useRef(new Animated.Value(0)).current;
@@ -751,6 +761,106 @@ const CollaboratorDetailScreen: React.FC<CollaboratorDetailScreenProps> = ({
     );
   };
 
+  // Nueva función para extraer URLs de un texto
+  const extractUrlsFromText = (text: string): string[] => {
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    return text.match(urlRegex) || [];
+  };
+
+  // Función para validar URLs del flujo de trabajo
+  const validateWorkflowUrls = () => {
+    if (!workflowActivityId) return;
+    
+    const activity = activities.find(act => act.id === workflowActivityId);
+    if (!activity || !activity.workflowMessages) return;
+    
+    // Extraer todas las URLs de los mensajes del flujo
+    const urls: string[] = [];
+    
+    activity.workflowMessages.forEach(msg => {
+      if (msg.content) {
+        const extractedUrls = extractUrlsFromText(msg.content);
+        urls.push(...extractedUrls);
+      }
+    });
+    
+    // Filtrar URLs duplicadas
+    const uniqueUrls = [...new Set(urls)];
+    
+    // Intentar cargar URL guardada previamente
+    AsyncStorage.getItem(`url_${workflowActivityId}`).then(savedUrl => {
+      if (savedUrl && !uniqueUrls.includes(savedUrl)) {
+        uniqueUrls.unshift(savedUrl); // Agregar al inicio si no existe
+      }
+      
+      if (uniqueUrls.length === 0) {
+        // No se encontraron URLs
+        Alert.alert(
+          'No se encontraron URLs',
+          'No se encontraron direcciones web en el flujo de trabajo. ¿Deseas agregar una URL manualmente?',
+          [
+            {
+              text: 'Cancelar',
+              style: 'cancel'
+            },
+            {
+              text: 'Agregar URL',
+              onPress: () => {
+                setCustomUrl('https://');
+                setShowAddCustomUrl(true);
+                setShowUrlDialog(true);
+              }
+            }
+          ]
+        );
+        return;
+      }
+      
+      // Guardar las URLs extraídas
+      setExtractedUrls(uniqueUrls);
+      setCustomUrl('');
+      setShowAddCustomUrl(false);
+      setIsEditingUrl(false);
+      
+      // Mostrar el diálogo de selección de URL
+      setShowUrlDialog(true);
+    }).catch(err => {
+      console.error('Error al obtener URL guardada:', err);
+      
+      if (uniqueUrls.length === 0) {
+        // No se encontraron URLs
+        Alert.alert(
+          'No se encontraron URLs',
+          'No se encontraron direcciones web en el flujo de trabajo. ¿Deseas agregar una URL manualmente?',
+          [
+            {
+              text: 'Cancelar',
+              style: 'cancel'
+            },
+            {
+              text: 'Agregar URL',
+              onPress: () => {
+                setCustomUrl('https://');
+                setShowAddCustomUrl(true);
+                setShowUrlDialog(true);
+              }
+            }
+          ]
+        );
+        return;
+      }
+      
+      // Guardar las URLs extraídas
+      setExtractedUrls(uniqueUrls);
+      setCustomUrl('');
+      setShowAddCustomUrl(false);
+      setIsEditingUrl(false);
+      
+      // Mostrar el diálogo de selección de URL
+      setShowUrlDialog(true);
+    });
+  };
+
   // Renderizar la pantalla de detalles
   return (
     <View style={styles.container}>
@@ -1091,6 +1201,14 @@ const CollaboratorDetailScreen: React.FC<CollaboratorDetailScreenProps> = ({
                         >
                           <Text style={styles.predefinedButtonText}>📋 Completo</Text>
                         </TouchableOpacity>
+                        
+                        <TouchableOpacity 
+                          style={styles.predefinedButton}
+                          onPress={validateWorkflowUrls}
+                          disabled={isProcessingWorkflow}
+                        >
+                          <Text style={styles.predefinedButtonText}>🔗 Validar URLs</Text>
+                        </TouchableOpacity>
                       </ScrollView>
                     </View>
                     
@@ -1271,6 +1389,241 @@ const CollaboratorDetailScreen: React.FC<CollaboratorDetailScreenProps> = ({
                 <Text style={styles.modalSaveButtonText}>Guardar</Text>
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal de WebView para probar URLs */}
+      <Modal
+        visible={showUrlDialog}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowUrlDialog(false)}
+      >
+        <View style={styles.centeredView}>
+          <View style={styles.urlModalView}>
+            <LinearGradient
+              colors={['#282a36', '#44475a']}
+              style={styles.urlModalGradient}
+            >
+              <Text style={styles.urlModalTitle}>URLs Detectadas</Text>
+              <Text style={styles.modalSubtitle}>Selecciona la URL correcta para esta actividad</Text>
+              
+              {showAddCustomUrl ? (
+                <View style={styles.customUrlContainer}>
+                  <Text style={styles.urlModalLabel}>Agregar URL personalizada:</Text>
+                  <TextInput
+                    style={styles.customUrlInput}
+                    value={customUrl}
+                    onChangeText={setCustomUrl}
+                    placeholder="https://ejemplo.com"
+                    placeholderTextColor="#6272a4"
+                    autoCapitalize="none"
+                    keyboardType="url"
+                  />
+                  <View style={styles.customUrlButtons}>
+                    <TouchableOpacity
+                      style={styles.customUrlButton}
+                      onPress={() => setShowAddCustomUrl(false)}
+                    >
+                      <Text style={styles.customUrlButtonText}>Cancelar</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.customUrlButton, styles.customUrlAddButton]}
+                      onPress={() => {
+                        if (customUrl && customUrl.trim().length > 0) {
+                          // Asegurarse de que la URL tiene el formato correcto
+                          let finalUrl = customUrl.trim();
+                          if (!finalUrl.startsWith('http')) {
+                            finalUrl = 'https://' + finalUrl;
+                          }
+                          // Agregar a la lista si no existe
+                          if (!extractedUrls.includes(finalUrl)) {
+                            setExtractedUrls([finalUrl, ...extractedUrls]);
+                          }
+                          setSelectedUrl(finalUrl);
+                          setShowAddCustomUrl(false);
+                        }
+                      }}
+                    >
+                      <Text style={styles.customUrlButtonText}>Agregar</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : (
+                <>
+                  {isEditingUrl ? (
+                    <View style={styles.editUrlContainer}>
+                      <Text style={styles.urlModalLabel}>Editar URL:</Text>
+                      <TextInput
+                        style={styles.editUrlInput}
+                        value={editingUrl}
+                        onChangeText={setEditingUrl}
+                        autoCapitalize="none"
+                        keyboardType="url"
+                      />
+                      <View style={styles.editUrlButtons}>
+                        <TouchableOpacity
+                          style={styles.editUrlButton}
+                          onPress={() => setIsEditingUrl(false)}
+                        >
+                          <Text style={styles.editUrlButtonText}>Cancelar</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.editUrlButton, styles.saveUrlButton]}
+                          onPress={() => {
+                            if (editingUrl && editingUrl.trim().length > 0) {
+                              // Actualizar la URL en la lista
+                              const updatedUrls = extractedUrls.map(url => 
+                                url === selectedUrl ? editingUrl.trim() : url
+                              );
+                              setExtractedUrls(updatedUrls);
+                              setSelectedUrl(editingUrl.trim());
+                              setIsEditingUrl(false);
+                            }
+                          }}
+                        >
+                          <Text style={styles.editUrlButtonText}>Guardar</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ) : (
+                    <ScrollView style={styles.urlListContainer}>
+                      {extractedUrls.map((url, index) => (
+                        <TouchableOpacity
+                          key={index}
+                          style={[
+                            styles.urlItem,
+                            selectedUrl === url && styles.selectedUrlItem
+                          ]}
+                          onPress={() => setSelectedUrl(url)}
+                        >
+                          <Text style={styles.urlText}>{url}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  )}
+                </>
+              )}
+              
+              <View style={styles.urlActionButtonsContainer}>
+                <TouchableOpacity
+                  style={styles.urlActionButton}
+                  onPress={() => {
+                    if (!showAddCustomUrl) {
+                      setCustomUrl('https://');
+                      setShowAddCustomUrl(true);
+                    } else {
+                      setShowAddCustomUrl(false);
+                    }
+                  }}
+                >
+                  <Text style={styles.urlActionButtonText}>
+                    {showAddCustomUrl ? 'Cancelar' : 'Agregar URL'}
+                  </Text>
+                </TouchableOpacity>
+                
+                {selectedUrl && !showAddCustomUrl && !isEditingUrl && (
+                  <TouchableOpacity
+                    style={styles.urlActionButton}
+                    onPress={() => {
+                      setEditingUrl(selectedUrl);
+                      setIsEditingUrl(true);
+                    }}
+                  >
+                    <Text style={styles.urlActionButtonText}>Editar</Text>
+                  </TouchableOpacity>
+                )}
+                
+                {selectedUrl && !showAddCustomUrl && !isEditingUrl && (
+                  <TouchableOpacity
+                    style={styles.urlActionButton}
+                    onPress={() => {
+                      // Eliminar URL seleccionada
+                      const updatedUrls = extractedUrls.filter(url => url !== selectedUrl);
+                      setExtractedUrls(updatedUrls);
+                      if (updatedUrls.length > 0) {
+                        setSelectedUrl(updatedUrls[0]);
+                      } else {
+                        setSelectedUrl('');
+                      }
+                    }}
+                  >
+                    <Text style={styles.urlActionButtonText}>Eliminar</Text>
+                  </TouchableOpacity>
+                )}
+                
+                {selectedUrl && !showAddCustomUrl && !isEditingUrl && (
+                  <TouchableOpacity
+                    style={styles.urlActionButton}
+                    onPress={() => {
+                      // Probar la URL sin guardarla
+                      if (Platform.OS === 'web') {
+                        window.open(selectedUrl, '_blank');
+                      } else {
+                        Linking.openURL(selectedUrl);
+                      }
+                    }}
+                  >
+                    <Text style={styles.urlActionButtonText}>Probar</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              
+              <View style={styles.urlModalButtons}>
+                <TouchableOpacity
+                  style={styles.urlModalButton}
+                  onPress={() => {
+                    setShowUrlDialog(false);
+                  }}
+                >
+                  <Text style={styles.urlModalButtonText}>Cancelar</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  style={[
+                    styles.urlModalButton,
+                    styles.validateButton,
+                    !selectedUrl && styles.disabledUrlButton
+                  ]}
+                  disabled={!selectedUrl || isEditingUrl || showAddCustomUrl}
+                  onPress={() => {
+                    if (selectedUrl) {
+                      // Guardar la URL para esta actividad
+                      if (workflowActivityId) {
+                        AsyncStorage.setItem(`url_${workflowActivityId}`, selectedUrl)
+                          .then(() => {
+                            // Confirmar al usuario y cerrar inmediatamente el diálogo
+                            setShowUrlDialog(false);
+                            
+                            // Mostrar confirmación después de cerrar el diálogo
+                            setTimeout(() => {
+                              Alert.alert(
+                                'URL Validada',
+                                'La URL ha sido validada y guardada para esta actividad.',
+                                [{ text: 'OK' }]
+                              );
+                            }, 300);
+                          })
+                          .catch(error => {
+                            console.error('Error al guardar URL:', error);
+                            Alert.alert(
+                              'Error',
+                              'Hubo un problema al guardar la URL. Inténtalo de nuevo.',
+                              [{ text: 'OK' }]
+                            );
+                          });
+                      } else {
+                        // Si no hay ID de actividad, simplemente cerrar el diálogo
+                        setShowUrlDialog(false);
+                      }
+                    }
+                  }}
+                >
+                  <Text style={styles.urlModalButtonText}>Validar y Guardar</Text>
+                </TouchableOpacity>
+              </View>
+            </LinearGradient>
           </View>
         </View>
       </Modal>
@@ -1825,6 +2178,163 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
+  workflowActivityName: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#f8f8f2',
+    marginBottom: 10,
+  },
+  urlModalView: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: 'transparent',
+  },
+  urlModalGradient: {
+    flex: 1,
+    padding: 20,
+  },
+  urlModalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#f8f8f2',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  modalSubtitle: {
+    color: '#f8f8f2',
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 15,
+  },
+  customUrlContainer: {
+    marginBottom: 10,
+    backgroundColor: '#21222C',
+    borderRadius: 10,
+    padding: 15,
+  },
+  urlModalLabel: {
+    color: '#f8f8f2',
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginBottom: 10,
+  },
+  customUrlInput: {
+    backgroundColor: '#44475a',
+    borderRadius: 5,
+    padding: 10,
+    color: '#f8f8f2',
+    marginBottom: 10,
+  },
+  customUrlButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 10,
+  },
+  customUrlButton: {
+    backgroundColor: '#ff5555',
+    padding: 12,
+    borderRadius: 5,
+    alignItems: 'center',
+    width: '48%',
+  },
+  customUrlButtonText: {
+    color: '#f8f8f2',
+    fontWeight: 'bold',
+  },
+  customUrlAddButton: {
+    backgroundColor: '#50fa7b',
+  },
+  editUrlContainer: {
+    marginBottom: 10,
+    backgroundColor: '#21222C',
+    borderRadius: 10,
+    padding: 15,
+  },
+  editUrlInput: {
+    backgroundColor: '#44475a',
+    borderRadius: 5,
+    padding: 10,
+    color: '#f8f8f2',
+    marginBottom: 10,
+  },
+  editUrlButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 10,
+  },
+  editUrlButton: {
+    backgroundColor: '#ff5555',
+    padding: 12,
+    borderRadius: 5,
+    alignItems: 'center',
+    width: '48%',
+  },
+  editUrlButtonText: {
+    color: '#f8f8f2',
+    fontWeight: 'bold',
+  },
+  saveUrlButton: {
+    backgroundColor: '#50fa7b',
+  },
+  urlListContainer: {
+    flex: 1,
+    backgroundColor: '#21222C',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 10,
+  },
+  urlItem: {
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  selectedUrlItem: {
+    backgroundColor: '#6272a4',
+  },
+  urlActionButtonsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 15,
+  },
+  urlActionButton: {
+    backgroundColor: '#6272a4',
+    padding: 12,
+    borderRadius: 5,
+    alignItems: 'center',
+    marginHorizontal: 3,
+    flex: 1,
+  },
+  urlActionButtonText: {
+    color: '#f8f8f2',
+    fontWeight: 'bold',
+    fontSize: 12,
+  },
+  urlModalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 20,
+  },
+  urlModalButton: {
+    backgroundColor: '#ff5555',
+    padding: 12,
+    borderRadius: 5,
+    alignItems: 'center',
+    width: '48%',
+  },
+  urlModalButtonText: {
+    color: '#f8f8f2',
+    fontWeight: 'bold',
+  },
+  validateButton: {
+    backgroundColor: '#50fa7b',
+  },
+  disabledUrlButton: {
+    opacity: 0.6,
+  },
+  urlText: {
+    color: '#f8f8f2',
+    fontSize: 14,
+  },
   workflowButton: {
     padding: 12,
     borderRadius: 5,
@@ -1856,12 +2366,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 14,
     textAlign: 'center',
-  },
-  workflowActivityName: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#f8f8f2',
-    marginBottom: 10,
   },
 });
 
