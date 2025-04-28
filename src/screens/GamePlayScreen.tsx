@@ -7,10 +7,14 @@ import {
   Animated,
   Easing,
   Dimensions,
-  SafeAreaView
+  SafeAreaView,
+  Modal,
+  ScrollView,
+  ActivityIndicator
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
+import { ActivityCategory } from '../services/openRouterService';
 
 // Definición de interfaces
 interface Collaborator {
@@ -22,6 +26,16 @@ interface Collaborator {
     positionX: number;
     positionY: number;
   };
+}
+
+interface Activity {
+  id: string;
+  name: string;
+  description: string;
+  status: 'active' | 'inactive' | 'scheduled';
+  categories: ActivityCategory[];
+  collaboratorId: string; // ID del colaborador al que pertenece
+  collaboratorName: string; // Nombre del colaborador
 }
 
 interface GamePlayScreenProps {
@@ -51,6 +65,12 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
   const [organizationName, setOrganizationName] = useState('');
   const [loading, setLoading] = useState(true);
   const [selectedCollaborator, setSelectedCollaborator] = useState<Collaborator | null>(null);
+  
+  // Estados para el navegador
+  const [activities, setActivities] = useState<Activity[]>([]);
+  const [filteredActivities, setFilteredActivities] = useState<Activity[]>([]);
+  const [isNavigatorOpen, setIsNavigatorOpen] = useState(false);
+  const [isLoadingActivities, setIsLoadingActivities] = useState(false);
 
   // Animación de entrada
   const fadeIn = useRef(new Animated.Value(0)).current;
@@ -121,6 +141,9 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
         setAreas(areasList);
         setOrganizationName(orgName || '');
         
+        // Cargar actividades de todos los colaboradores
+        loadAllActivities(collaboratorsList);
+        
         // Iniciar animaciones
         startAnimations(collaboratorsList);
       } catch (error) {
@@ -159,6 +182,49 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
       });
     };
   }, []);
+
+  // Función para cargar todas las actividades de los colaboradores
+  const loadAllActivities = async (collaboratorsList: Collaborator[]) => {
+    setIsLoadingActivities(true);
+    
+    try {
+      const allActivities: Activity[] = [];
+      
+      // Obtener actividades de cada colaborador
+      for (const collaborator of collaboratorsList) {
+        const storedActivities = await AsyncStorage.getItem(`activities_${collaborator.id}`);
+        
+        if (storedActivities) {
+          const parsedActivities = JSON.parse(storedActivities);
+          
+          // Mapear actividades añadiendo el id y nombre del colaborador
+          const activitiesWithCollaborator = parsedActivities.map((activity: any) => ({
+            ...activity,
+            collaboratorId: collaborator.id,
+            collaboratorName: collaborator.name,
+            // Asegurar que exista el campo categories
+            categories: activity.categories || []
+          }));
+          
+          allActivities.push(...activitiesWithCollaborator);
+        }
+      }
+      
+      setActivities(allActivities);
+      
+      // Filtrar actividades que sean de tipo 'asistente' o 'administrativo'
+      const filtered = allActivities.filter(activity => 
+        activity.categories.includes('asistente') || 
+        activity.categories.includes('administrativo')
+      );
+      
+      setFilteredActivities(filtered);
+    } catch (error) {
+      console.error('Error al cargar actividades:', error);
+    } finally {
+      setIsLoadingActivities(false);
+    }
+  };
 
   // Función para iniciar animaciones
   const startAnimations = (collaboratorsList: Collaborator[]) => {
@@ -289,8 +355,8 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
                         { translateX: avatarAnim.position.x },
                         { translateY: avatarAnim.position.y },
                         { rotate: avatarAnim.rotation.interpolate({
-                          inputRange: [-0.05, 0.05],
-                          outputRange: ['-5deg', '5deg']
+                          inputRange: [-1, 1],
+                          outputRange: ['-20deg', '20deg']
                         })},
                         { scale: avatarAnim.scale }
                       ]
@@ -303,56 +369,149 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
                   >
                     <View style={[
                       styles.avatar,
-                      { backgroundColor: collaborator.avatar?.color || avatarColors[0] },
-                      isSelected && styles.selectedAvatar
+                      isSelected && styles.selectedAvatar,
+                      { backgroundColor: collaborator.avatar?.color || '#bd93f9' }
                     ]}>
-                      <Text style={styles.avatarText}>{collaborator.name.charAt(0).toUpperCase()}</Text>
+                      <Text style={styles.avatarText}>
+                        {collaborator.name.charAt(0).toUpperCase()}
+                      </Text>
                     </View>
-                    
                     <View style={[
                       styles.nameTag,
                       isSelected && styles.selectedNameTag
                     ]}>
-                      <Text style={styles.nameText} numberOfLines={1}>{collaborator.name}</Text>
+                      <Text style={styles.nameText}>{collaborator.name}</Text>
                     </View>
                   </TouchableOpacity>
                 </Animated.View>
               );
             })}
+            
+            {/* Icono del Navegador */}
+            <TouchableOpacity
+              style={styles.navigatorIcon}
+              onPress={() => setIsNavigatorOpen(true)}
+            >
+              <LinearGradient
+                colors={['#6272a4', '#44475a']}
+                style={styles.navigatorGradient}
+              >
+                <Text style={styles.navigatorIconEmoji}>🌐</Text>
+                <Text style={styles.navigatorText}>Navegador</Text>
+              </LinearGradient>
+            </TouchableOpacity>
           </View>
           
-          {/* Información del colaborador seleccionado */}
-          <Animated.View style={[
-            styles.infoPanel,
-            {
-              opacity: fadeIn,
-              height: selectedCollaborator ? 'auto' : 0,
-              overflow: 'hidden'
-            }
-          ]}>
-            {selectedCollaborator && (
-              <>
-                <Text style={styles.infoPanelTitle}>{selectedCollaborator.name}</Text>
-                <Text style={styles.infoPanelDetail}>
-                  Área: {areas[selectedCollaborator.areaIndex] || `Área ${selectedCollaborator.areaIndex + 1}`}
-                </Text>
-              </>
-            )}
-          </Animated.View>
-          
-          <Animated.View style={{
-            opacity: fadeIn,
-            transform: [{ translateY: slideUp }]
-          }}>
-            <TouchableOpacity
-              style={styles.backButton}
-              onPress={onBack}
-            >
-              <Text style={styles.backButtonText}>Volver al Menú</Text>
-            </TouchableOpacity>
-          </Animated.View>
+          {selectedCollaborator && (
+            <Animated.View style={[
+              styles.infoPanel,
+              {
+                opacity: fadeIn,
+                transform: [{ translateY: slideUp }]
+              }
+            ]}>
+              <Text style={styles.infoPanelTitle}>{selectedCollaborator.name}</Text>
+              <Text style={styles.infoPanelSubtitle}>
+                {areas[selectedCollaborator.areaIndex] || `Área ${selectedCollaborator.areaIndex + 1}`}
+              </Text>
+              <TouchableOpacity
+                style={styles.detailButton}
+                onPress={() => {
+                  const areaName = areas[selectedCollaborator.areaIndex] || `Área ${selectedCollaborator.areaIndex + 1}`;
+                  onSelectCollaborator(selectedCollaborator, areaName);
+                }}
+              >
+                <Text style={styles.detailButtonText}>Ver Detalles</Text>
+              </TouchableOpacity>
+            </Animated.View>
+          )}
         </SafeAreaView>
+        
+        <TouchableOpacity style={styles.backButton} onPress={onBack}>
+          <Text style={styles.backButtonText}>← Volver al menú</Text>
+        </TouchableOpacity>
       </LinearGradient>
+      
+      {/* Modal del Navegador */}
+      <Modal
+        visible={isNavigatorOpen}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setIsNavigatorOpen(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <LinearGradient
+              colors={['#282a36', '#44475a']}
+              style={styles.modalGradient}
+            >
+              <Text style={styles.modalTitle}>Navegador de Actividades</Text>
+              <Text style={styles.modalSubtitle}>Actividades administrativas y de asistente</Text>
+              
+              {isLoadingActivities ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="large" color="#bd93f9" />
+                  <Text style={styles.loadingText}>Cargando actividades...</Text>
+                </View>
+              ) : filteredActivities.length === 0 ? (
+                <View style={styles.emptyContainer}>
+                  <Text style={styles.emptyText}>No hay actividades de tipo administrativo o asistente</Text>
+                </View>
+              ) : (
+                <ScrollView style={styles.activitiesList} contentContainerStyle={styles.activitiesListContent}>
+                  {filteredActivities.map((activity) => (
+                    <View key={activity.id} style={styles.activityItem}>
+                      <View style={styles.activityHeader}>
+                        <Text style={styles.activityName}>{activity.name}</Text>
+                        <View
+                          style={[
+                            styles.statusIndicator,
+                            activity.status === 'active' ? styles.activeIndicator : 
+                            activity.status === 'scheduled' ? styles.scheduledIndicator :
+                            styles.inactiveIndicator
+                          ]}
+                        />
+                      </View>
+                      
+                      {activity.description ? (
+                        <Text style={styles.activityDescription}>
+                          {activity.description}
+                        </Text>
+                      ) : null}
+                      
+                      <View style={styles.activityFooter}>
+                        <View style={styles.collaboratorTagContainer}>
+                          <Text style={styles.collaboratorTagLabel}>Responsable:</Text>
+                          <Text style={styles.collaboratorTagName}>{activity.collaboratorName}</Text>
+                        </View>
+                        
+                        <View style={styles.categoriesContainer}>
+                          {activity.categories.map((category, index) => (
+                            category === 'administrativo' || category === 'asistente' ? (
+                              <View key={index} style={styles.categoryBadge}>
+                                <Text style={styles.categoryText}>
+                                  {category === 'administrativo' ? '📁 Admin' : '✉️ Asistente'}
+                                </Text>
+                              </View>
+                            ) : null
+                          ))}
+                        </View>
+                      </View>
+                    </View>
+                  ))}
+                </ScrollView>
+              )}
+              
+              <TouchableOpacity
+                style={styles.closeButton}
+                onPress={() => setIsNavigatorOpen(false)}
+              >
+                <Text style={styles.closeButtonText}>Cerrar</Text>
+              </TouchableOpacity>
+            </LinearGradient>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -452,10 +611,21 @@ const styles = StyleSheet.create({
     color: '#f8f8f2',
     marginBottom: 5,
   },
-  infoPanelDetail: {
+  infoPanelSubtitle: {
     fontSize: 14,
     color: '#8be9fd',
     marginBottom: 5,
+  },
+  detailButton: {
+    backgroundColor: 'rgba(98, 114, 164, 0.8)',
+    borderRadius: 25,
+    padding: 15,
+    alignItems: 'center',
+  },
+  detailButtonText: {
+    color: '#f8f8f2',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   backButton: {
     backgroundColor: 'rgba(98, 114, 164, 0.8)',
@@ -464,6 +634,171 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   backButtonText: {
+    color: '#f8f8f2',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  navigatorIcon: {
+    position: 'absolute',
+    bottom: 100,
+    right: 20,
+    width: 100,
+    height: 100,
+    borderRadius: 10,
+    overflow: 'hidden',
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 8,
+  },
+  navigatorGradient: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 10,
+  },
+  navigatorIconEmoji: {
+    fontSize: 48,
+    fontWeight: 'bold',
+    color: '#f8f8f2',
+    marginBottom: 10,
+  },
+  navigatorText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#f8f8f2',
+    textAlign: 'center',
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  modalContent: {
+    width: '90%',
+    height: '80%',
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  modalGradient: {
+    flex: 1,
+    width: '100%',
+    padding: 20,
+  },
+  modalTitle: {
+    fontSize: 26,
+    fontWeight: 'bold',
+    color: '#f8f8f2',
+    marginBottom: 20,
+  },
+  modalSubtitle: {
+    fontSize: 16,
+    color: '#bd93f9',
+    marginBottom: 20,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: 16,
+    color: '#bd93f9',
+    marginTop: 10,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#bd93f9',
+  },
+  activitiesList: {
+    flex: 1,
+    width: '100%',
+  },
+  activitiesListContent: {
+    padding: 10,
+  },
+  activityItem: {
+    padding: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#44475a',
+  },
+  activityHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 5,
+  },
+  activityName: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#f8f8f2',
+  },
+  statusIndicator: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginLeft: 10,
+  },
+  activeIndicator: {
+    backgroundColor: '#50fa7b',
+  },
+  scheduledIndicator: {
+    backgroundColor: '#f1fa8c',
+  },
+  inactiveIndicator: {
+    backgroundColor: '#ff5555',
+  },
+  activityDescription: {
+    color: '#8be9fd',
+  },
+  activityFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 5,
+  },
+  collaboratorTagContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  collaboratorTagLabel: {
+    color: '#8be9fd',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  collaboratorTagName: {
+    color: '#f8f8f2',
+    fontSize: 12,
+    marginLeft: 5,
+  },
+  categoriesContainer: {
+    flexDirection: 'row',
+    marginLeft: 10,
+  },
+  categoryBadge: {
+    backgroundColor: 'rgba(40, 42, 54, 0.8)',
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 5,
+    marginRight: 5,
+  },
+  categoryText: {
+    color: '#f8f8f2',
+    fontSize: 12,
+  },
+  closeButton: {
+    backgroundColor: 'rgba(98, 114, 164, 0.8)',
+    borderRadius: 25,
+    padding: 15,
+    alignItems: 'center',
+  },
+  closeButtonText: {
     color: '#f8f8f2',
     fontSize: 16,
     fontWeight: 'bold',
