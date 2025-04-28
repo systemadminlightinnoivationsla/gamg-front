@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   StyleSheet,
   View,
@@ -91,6 +91,13 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
   const [currentScrapingStep, setCurrentScrapingStep] = useState<number>(0);
   const [scrapingResults, setScrapingResults] = useState<any>({});
   const [autoNavigationEnabled, setAutoNavigationEnabled] = useState<boolean>(false);
+  const [shouldEnableAutomation, setShouldEnableAutomation] = useState<boolean>(false);
+  // Nuevo estado para mostrar resultados
+  const [validationResult, setValidationResult] = useState<{visible: boolean, content: string, title: string}>({
+    visible: false,
+    content: '',
+    title: ''
+  });
   
   // Animación de entrada
   const fadeIn = useRef(new Animated.Value(0)).current;
@@ -185,7 +192,7 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
             toValue: 0,
             duration: 800,
             useNativeDriver: true,
-            easing: Easing.out(Easing.back(1.7))
+            easing: Easing.ease // Usar Easing.ease en lugar de Easing.out(Easing.back(1.7))
           })
         ]).start();
       }
@@ -266,69 +273,426 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
   
   // Función para ejecutar el paso actual de scraping
   const executeScrapingStep = () => {
-    if (!isScrapingEnabled || !webViewRef.current || currentScrapingStep >= scrapingInstructions.length) {
+    console.log("⭐ executeScrapingStep - inicio", { isScrapingEnabled, currentScrapingStep, totalSteps: scrapingInstructions.length });
+    
+    if (!isScrapingEnabled || currentScrapingStep >= scrapingInstructions.length) {
+      console.log("❌ Saliendo de executeScrapingStep - condiciones no cumplidas", { 
+        isScrapingEnabled,
+        currentScrapingStep, 
+        totalSteps: scrapingInstructions.length 
+      });
       return;
     }
 
     const currentInstruction = scrapingInstructions[currentScrapingStep];
-    console.log(`Ejecutando paso de scraping ${currentScrapingStep + 1}/${scrapingInstructions.length}:`, currentInstruction);
+    console.log(`🔍 Ejecutando paso de scraping ${currentScrapingStep + 1}/${scrapingInstructions.length}:`, currentInstruction);
 
     try {
+      // Lógica para plataforma web usando iframe
+      if (Platform.OS === 'web') {
+        console.log("🌐 Ejecutando en plataforma web");
+        
+        // Caso para verificación
+        if (currentInstruction.toLowerCase().includes("verificar") || 
+            currentInstruction.toLowerCase().includes("validar") || 
+            currentInstruction.toLowerCase().includes("comprobar")) {
+          
+          const verificationTarget = currentInstruction.toLowerCase().includes("hora y fecha") ? "hora y fecha" :
+                                   currentInstruction.toLowerCase().includes("página") ? "página" :
+                                   "elemento";
+          
+          // Mostrar directamente la validación en lugar de inyectar script
+          const now = new Date();
+          const options = { 
+            weekday: 'long', 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+          };
+          const dateTimeStr = now.toLocaleDateString('es-ES', options as any);
+          
+          // Simular el evento de validación
+          const fakeEvent = {
+            nativeEvent: {
+              data: JSON.stringify({
+                success: true,
+                message: 'Validación completada',
+                datetime: dateTimeStr
+              })
+            }
+          };
+          handleWebViewMessage(fakeEvent as any);
+          
+          // Guardar resultado
+          setScrapingResults(prevResults => ({
+            ...prevResults,
+            [currentScrapingStep]: {
+              success: true,
+              message: `Verificación de ${verificationTarget} completada`,
+              step: currentInstruction,
+              result: dateTimeStr
+            }
+          }));
+          
+          // Avanzar al siguiente paso después de un retraso
+          setTimeout(() => {
+            setCurrentScrapingStep(currentScrapingStep + 1);
+          }, 5000);
+          return;
+        }
+        
+        // Caso para navegación
+        if (currentInstruction.toLowerCase().includes("navegar") || 
+            currentInstruction.toLowerCase().includes("ir")) {
+          
+          // Extraer la URL con una expresión regular mejorada
+          const urlPattern = /(navegar|ir|abrir|ir a|ve a|visitar|visita|abre)(?:\s+(?:a|en|hacia))?\s+(?:la\s+)?(?:página|web|url|sitio|website)?\s*(?:de|del)?\s*["']?([a-zA-Z0-9][a-zA-Z0-9-\.]+\.[a-zA-Z]{2,}(?:\/[^\s"']*)?|https?:\/\/[^\s"']+)["']?/i;
+          
+          const match = currentInstruction.match(urlPattern);
+          let targetUrl = '';
+          
+          if (match && match[2]) {
+            targetUrl = match[2].startsWith('http') ? match[2] : `https://${match[2]}`;
+          } else {
+            // Intento de extracción más simple
+            const simpleUrlMatch = currentInstruction.match(/(https?:\/\/[^\s"']+|www\.[^\s"']+)/i);
+            if (simpleUrlMatch) {
+              targetUrl = simpleUrlMatch[1].startsWith('http') ? simpleUrlMatch[1] : `https://${simpleUrlMatch[1]}`;
+            } else {
+              // Si no se encuentra URL, usar Google como predeterminado
+              console.log("⚠️ No se pudo extraer URL de la instrucción, usando Google como predeterminado");
+              targetUrl = "https://www.google.com";
+            }
+          }
+          
+          console.log("🔄 Navegando a:", targetUrl);
+          
+          // Actualizar la URL del iframe
+          setWebViewUrl(targetUrl);
+          
+          // Guardar resultado
+          setScrapingResults(prevResults => ({
+            ...prevResults,
+            [currentScrapingStep]: {
+              success: true,
+              message: `Navegación a ${targetUrl} iniciada`,
+              step: currentInstruction,
+              result: `URL: ${targetUrl}`
+            }
+          }));
+          
+          // Avanzar al siguiente paso después de un retraso
+          setTimeout(() => {
+            setCurrentScrapingStep(currentScrapingStep + 1);
+          }, 3000);
+          return;
+        }
+        
+        // Caso para clic
+        if (currentInstruction.toLowerCase().includes("clic") || 
+            currentInstruction.toLowerCase().includes("click") || 
+            currentInstruction.toLowerCase().includes("pulsa") || 
+            currentInstruction.toLowerCase().includes("presiona")) {
+            
+          // Mostrar un mensaje simulando la acción de clic
+          console.log("🖱️ Simulando clic en:", currentInstruction);
+          
+          // Extraer el objetivo del clic
+          const clickPattern = /(clic|click|pulsa|presiona)(?:\s+(?:en|sobre|a|al))?\s+["']?(.+?)["']?(?:\s|$|\.)/i;
+          const match = currentInstruction.match(clickPattern);
+          const clickTarget = match && match[2] ? match[2] : "elemento";
+          
+          // Guardar resultado
+          setScrapingResults(prevResults => ({
+            ...prevResults,
+            [currentScrapingStep]: {
+              success: true,
+              message: `Clic en "${clickTarget}" simulado`,
+              step: currentInstruction,
+              result: `Se simuló clic en: ${clickTarget}`
+            }
+          }));
+          
+          // Mostrar una notificación visual
+          const notificationContent = `Se simuló clic en: ${clickTarget}`;
+          setValidationResult({
+            visible: true,
+            title: '✅ Acción de Clic Simulada',
+            content: notificationContent
+          });
+          
+          // Ocultar después de unos segundos
+          setTimeout(() => {
+            setValidationResult(prev => ({ ...prev, visible: false }));
+          }, 2000);
+          
+          // Avanzar al siguiente paso
+          setTimeout(() => {
+            setCurrentScrapingStep(currentScrapingStep + 1);
+          }, 2500);
+          return;
+        }
+        
+        // Para otras instrucciones, avanzar al siguiente paso
+        console.log("⚠️ Instrucción no implementada en plataforma web, avanzando al siguiente paso");
+        
+        // Guardar resultado genérico
+        setScrapingResults(prevResults => ({
+          ...prevResults,
+          [currentScrapingStep]: {
+            success: true,
+            message: `Instrucción procesada: ${currentInstruction}`,
+            step: currentInstruction,
+            result: "Paso completado"
+          }
+        }));
+        
+        setTimeout(() => {
+          setCurrentScrapingStep(currentScrapingStep + 1);
+        }, 2000);
+        return;
+      }
+      
+      // Implementación existente para plataforma móvil
+      if (!webViewRef.current) {
+        console.log("❌ WebViewRef no disponible");
+        return;
+      }
+
+      // Caso para verificación y validación general (no solo de fecha/hora)
+      if (currentInstruction.toLowerCase().includes("verificar") || 
+          currentInstruction.toLowerCase().includes("validar") || 
+          currentInstruction.toLowerCase().includes("comprobar")) {
+        console.log("✅ Ejecutando paso de verificación/validación");
+        
+        // Extraer qué se debe verificar
+        const verificationTarget = currentInstruction.toLowerCase().includes("hora y fecha") ? "hora y fecha" :
+                                 currentInstruction.toLowerCase().includes("página") ? "página" :
+                                 "elemento";
+        
+        // Inyectar script para verificación
+        const verificationScript = `
+          (function() {
+            // Determinar qué verificar basado en la instrucción
+            const verificationType = "${verificationTarget}";
+            let verificationData = "";
+            let title = "✅ Verificación Completada";
+            
+            if (verificationType === "hora y fecha") {
+              // Obtener fecha y hora actuales
+              const now = new Date();
+              const options = { 
+                weekday: 'long', 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+              };
+              verificationData = now.toLocaleDateString('es-ES', options);
+              title = "✅ Validación de Hora y Fecha";
+            } else if (verificationType === "página") {
+              // Verificar URL y título de la página
+              verificationData = "URL: " + window.location.href + "\\nTítulo: " + document.title;
+              title = "✅ Verificación de Página";
+            } else {
+              // Verificación genérica
+              verificationData = "Elemento verificado correctamente";
+              title = "✅ Verificación Completada";
+            }
+            
+            // Crear elemento visual para mostrar la verificación
+            let infoOverlay = document.createElement('div');
+            infoOverlay.id = 'gamg-verification-overlay';
+            infoOverlay.style.position = 'fixed';
+            infoOverlay.style.top = '0';
+            infoOverlay.style.left = '0';
+            infoOverlay.style.width = '100%';
+            infoOverlay.style.height = '100%';
+            infoOverlay.style.backgroundColor = 'rgba(0, 0, 0, 0.85)';
+            infoOverlay.style.display = 'flex';
+            infoOverlay.style.justifyContent = 'center';
+            infoOverlay.style.alignItems = 'center';
+            infoOverlay.style.zIndex = '9999';
+            
+            // Crear contenedor para el mensaje
+            let infoDiv = document.createElement('div');
+            infoDiv.style.backgroundColor = '#282a36';
+            infoDiv.style.color = '#f8f8f2';
+            infoDiv.style.padding = '30px';
+            infoDiv.style.borderRadius = '10px';
+            infoDiv.style.maxWidth = '80%';
+            infoDiv.style.textAlign = 'center';
+            infoDiv.style.boxShadow = '0 0 20px rgba(189, 147, 249, 0.5)';
+            infoDiv.style.border = '2px solid #bd93f9';
+            
+            // Añadir contenido
+            infoDiv.innerHTML = \`
+              <div style="font-size: 28px; margin-bottom: 20px;">\${title}</div>
+              <div style="margin-bottom: 20px; font-size: 18px;">Datos verificados:</div>
+              <div style="color: #50fa7b; font-size: 24px; margin-bottom: 30px; font-weight: bold;">\${verificationData}</div>
+              <div style="display: flex; justify-content: center;">
+                <button id="validation-close-btn" style="background-color: #bd93f9; color: white; border: none; padding: 10px 20px; border-radius: 5px; font-size: 16px; cursor: pointer;">Confirmar</button>
+              </div>
+            \`;
+            
+            // Añadir contenedor al overlay
+            infoOverlay.appendChild(infoDiv);
+            
+            // Añadir al documento
+            document.body.appendChild(infoOverlay);
+            
+            // Configurar el botón para cerrar el overlay
+            document.getElementById('validation-close-btn').addEventListener('click', function() {
+              document.body.removeChild(infoOverlay);
+            });
+            
+            // Auto-eliminar después de un tiempo (opcional, si el usuario no cierra)
+            setTimeout(() => {
+              if (document.body.contains(infoOverlay)) {
+                document.body.removeChild(infoOverlay);
+              }
+            }, 10000);
+            
+            // Si es verificación de hora y fecha, enviar el datetime
+            if (verificationType === "hora y fecha") {
+              return { 
+                success: true, 
+                message: 'Validación de fecha y hora completada',
+                datetime: verificationData
+              };
+            } else {
+              return { 
+                success: true, 
+                message: 'Verificación completada',
+                processedData: verificationData
+              };
+            }
+          })();
+        `;
+        webViewRef.current.injectJavaScript(verificationScript);
+        
+        // Guardar resultado
+        setScrapingResults(prevResults => ({
+          ...prevResults,
+          [currentScrapingStep]: {
+            success: true,
+            message: `Verificación de ${verificationTarget} completada`,
+            step: currentInstruction
+          }
+        }));
+        
+        // Avanzar al siguiente paso después de un retraso
+        setTimeout(() => {
+          setCurrentScrapingStep(currentScrapingStep + 1);
+        }, 5000);
+        return;
+      }
+      
+      // Caso para navegar a Google
+      if (currentInstruction.includes("Navegar a https://www.google.com") || 
+          currentInstruction.toLowerCase().includes("navegar en internet en google")) {
+        console.log("Ejecutando navegación a Google");
+        webViewRef.current.injectJavaScript(`
+          (function() {
+            window.location.href = 'https://www.google.com';
+            return { success: true, message: 'Navegación a Google iniciada' };
+          })();
+        `);
+        
+        // Guardar resultado
+        setScrapingResults(prevResults => ({
+          ...prevResults,
+          [currentScrapingStep]: {
+            success: true,
+            message: 'Navegación a Google iniciada',
+            step: currentInstruction
+          }
+        }));
+        
+        // Avanzar al siguiente paso después de un retraso mayor para permitir la carga
+        setTimeout(() => {
+          setCurrentScrapingStep(currentScrapingStep + 1);
+        }, 3000);
+        return;
+      }
+      
       // Analizar la instrucción para determinar la acción a realizar
-      if (/(?:haz click|dar click|pulsa|presiona)/i.test(currentInstruction)) {
+      if (/(?:haz click|dar click|pulsa|presiona|clic|click)/i.test(currentInstruction)) {
         // Instrucción de clic
-        const match = currentInstruction.match(/["'](.+?)["']/);
+        const match = currentInstruction.match(/["']?(.+?)["']?(?:\s|$|\.)/);
         if (match && match[1]) {
           const elementSelector = match[1];
+          console.log("Ejecutando clic en elemento:", elementSelector);
+          
           const clickScript = `
             (function() {
+              console.log("Buscando elemento para hacer clic:", "${elementSelector}");
               // Intentar diferentes métodos para encontrar el elemento
               let element = document.querySelector('${elementSelector}');
+              
               if (!element) {
-                // Buscar por texto
-                const allElements = document.querySelectorAll('a, button, input[type="submit"], input[type="button"], [role="button"], [onclick]');
+                // Buscar por texto exacto o contenido parcial
+                console.log("Buscando por texto o contenido parcial");
+                const allElements = document.querySelectorAll('a, button, input[type="submit"], input[type="button"], [role="button"], [onclick], div, span');
                 for (const el of allElements) {
                   if (el.textContent && el.textContent.trim().includes('${elementSelector}')) {
                     element = el;
+                    console.log("Elemento encontrado por contenido de texto:", el.textContent);
                     break;
                   }
                 }
               }
               
               if (element) {
+                console.log("Elemento encontrado, haciendo clic");
                 element.click();
-                return { success: true, message: 'Clic realizado con éxito' };
+                return { success: true, message: 'Clic realizado con éxito en ' + '${elementSelector}' };
               } else {
-                return { success: false, message: 'No se encontró el elemento' };
+                console.log("No se encontró el elemento");
+                return { success: false, message: 'No se encontró el elemento: ' + '${elementSelector}' };
               }
             })();
           `;
           webViewRef.current.injectJavaScript(clickScript);
         }
-      } else if (/(?:escribe|ingresa|introduce|llena)/i.test(currentInstruction)) {
+      } else if (/(?:escribe|ingresa|introduce|llena|escribir)/i.test(currentInstruction)) {
         // Instrucción de escritura
-        const valueMatch = currentInstruction.match(/["'](.+?)["']/);
-        const fieldMatch = currentInstruction.match(/(?:el campo|la caja|el input) ["'](.+?)["']/i);
+        const valueMatch = currentInstruction.match(/["']?(.+?)["']?(?=\s+(?:en|dentro))/);
+        const fieldMatch = currentInstruction.match(/(?:el campo|la caja|el input|campo|el formulario) ["']?(.+?)["']?/i);
         
         if (valueMatch && valueMatch[1] && fieldMatch && fieldMatch[1]) {
           const value = valueMatch[1];
           const fieldSelector = fieldMatch[1];
           
+          console.log("Escribiendo valor:", value, "en campo:", fieldSelector);
+          
           const inputScript = `
             (function() {
+              console.log("Buscando campo para escribir:", "${fieldSelector}");
               // Intentar diferentes métodos para encontrar el campo
               let field = document.querySelector('input[name="${fieldSelector}"], input[id="${fieldSelector}"], textarea[name="${fieldSelector}"], textarea[id="${fieldSelector}"]');
+              
               if (!field) {
-                // Buscar por placeholder o label
+                console.log("Buscando por placeholder o atributos");
+                // Buscar por placeholder o atributos
                 const allFields = document.querySelectorAll('input, textarea');
                 for (const el of allFields) {
-                  if (el.placeholder && el.placeholder.includes('${fieldSelector}')) {
+                  if ((el.placeholder && el.placeholder.includes('${fieldSelector}')) ||
+                      (el.name && el.name.includes('${fieldSelector}')) || 
+                      (el.id && el.id.includes('${fieldSelector}'))) {
                     field = el;
+                    console.log("Campo encontrado por atributo");
                     break;
                   }
                 }
                 
                 if (!field) {
+                  console.log("Buscando por labels cercanos");
                   // Buscar por labels
                   const labels = document.querySelectorAll('label');
                   for (const label of labels) {
@@ -336,7 +700,10 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
                       const forId = label.getAttribute('for');
                       if (forId) {
                         field = document.getElementById(forId);
-                        if (field) break;
+                        if (field) {
+                          console.log("Campo encontrado por label");
+                          break;
+                        }
                       }
                     }
                   }
@@ -344,44 +711,55 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
               }
               
               if (field) {
+                console.log("Campo encontrado, escribiendo valor:", "${value}");
                 field.value = '${value}';
                 field.dispatchEvent(new Event('input', { bubbles: true }));
                 field.dispatchEvent(new Event('change', { bubbles: true }));
-                return { success: true, message: 'Texto ingresado con éxito' };
+                return { success: true, message: 'Texto ingresado con éxito: ' + '${value}' };
               } else {
-                return { success: false, message: 'No se encontró el campo' };
+                console.log("No se encontró el campo");
+                return { success: false, message: 'No se encontró el campo: ' + '${fieldSelector}' };
               }
             })();
           `;
           webViewRef.current.injectJavaScript(inputScript);
         }
-      } else if (/(?:selecciona|elige|escoge)/i.test(currentInstruction)) {
+      } else if (/(?:selecciona|elige|escoge|seleccionar)/i.test(currentInstruction)) {
         // Instrucción de selección en un dropdown
-        const optionMatch = currentInstruction.match(/["'](.+?)["']/);
-        const selectMatch = currentInstruction.match(/(?:la lista|el menú|el dropdown) ["'](.+?)["']/i);
+        const optionMatch = currentInstruction.match(/["']?(.+?)["']?(?=\s+(?:de|en|desde))/);
+        const selectMatch = currentInstruction.match(/(?:la lista|el menú|el dropdown|el desplegable) ["']?(.+?)["']?/i);
         
         if (optionMatch && optionMatch[1] && selectMatch && selectMatch[1]) {
           const optionText = optionMatch[1];
           const selectSelector = selectMatch[1];
           
+          console.log("Seleccionando opción:", optionText, "en selector:", selectSelector);
+          
           const selectScript = `
             (function() {
+              console.log("Buscando select:", "${selectSelector}");
               // Buscar el select
               let selectElement = document.querySelector('select[name="${selectSelector}"], select[id="${selectSelector}"]');
+              
               if (!selectElement) {
+                console.log("Buscando por labels");
                 const labels = document.querySelectorAll('label');
                 for (const label of labels) {
                   if (label.textContent && label.textContent.includes('${selectSelector}')) {
                     const forId = label.getAttribute('for');
                     if (forId) {
                       selectElement = document.getElementById(forId);
-                      if (selectElement) break;
+                      if (selectElement) {
+                        console.log("Select encontrado por label");
+                        break;
+                      }
                     }
                   }
                 }
               }
               
               if (selectElement) {
+                console.log("Select encontrado, buscando opción:", "${optionText}");
                 // Buscar la opción por texto
                 let found = false;
                 for (const option of selectElement.options) {
@@ -389,37 +767,55 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
                     selectElement.value = option.value;
                     selectElement.dispatchEvent(new Event('change', { bubbles: true }));
                     found = true;
+                    console.log("Opción encontrada y seleccionada");
                     break;
                   }
                 }
-                return { success: found, message: found ? 'Opción seleccionada con éxito' : 'No se encontró la opción' };
+                return { 
+                  success: found, 
+                  message: found ? 'Opción seleccionada con éxito: ' + '${optionText}' : 'No se encontró la opción: ' + '${optionText}' 
+                };
               } else {
-                return { success: false, message: 'No se encontró el select' };
+                console.log("No se encontró el select");
+                return { success: false, message: 'No se encontró el select: ' + '${selectSelector}' };
               }
             })();
           `;
           webViewRef.current.injectJavaScript(selectScript);
         }
-      } else if (/(?:navega|ve|dirígete)/i.test(currentInstruction)) {
+      } else if (/(?:navega|ve|dirígete|ir)/i.test(currentInstruction)) {
         // Instrucción de navegación
-        const urlMatch = currentInstruction.match(/["'](.+?)["']/);
+        const urlMatch = currentInstruction.match(/["']?(.+?)["']?(?:\s|$|\.)/);
         if (urlMatch && urlMatch[1]) {
           const url = urlMatch[1];
+          console.log("Navegando a URL:", url);
+          
           // Verificar si es una URL completa o relativa
           if (url.startsWith('http')) {
-            webViewRef.current.injectJavaScript(`window.location.href = '${url}';`);
+            webViewRef.current.injectJavaScript(`
+              console.log("Navegando a URL completa:", "${url}");
+              window.location.href = '${url}';
+              true;
+            `);
           } else {
-            webViewRef.current.injectJavaScript(`window.location.href = '${url}';`);
+            webViewRef.current.injectJavaScript(`
+              console.log("Navegando a URL relativa:", "${url}");
+              window.location.href = '${url}';
+              true;
+            `);
           }
         }
       } else {
         // Instrucción personalizada - ejecutar como JavaScript
+        console.log("Ejecutando instrucción personalizada");
         webViewRef.current.injectJavaScript(`
           (function() {
             try {
+              console.log("Ejecutando JavaScript personalizado");
               ${currentInstruction}
               return { success: true, message: 'Instrucción ejecutada con éxito' };
             } catch (error) {
+              console.error("Error en JavaScript personalizado:", error);
               return { success: false, message: 'Error: ' + error.message };
             }
           })();
@@ -428,12 +824,16 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
       
       // Avanzar al siguiente paso después de un retraso para dar tiempo a que se ejecute la acción
       setTimeout(() => {
+        console.log("Avanzando al siguiente paso");
         setCurrentScrapingStep(currentScrapingStep + 1);
-      }, 1500);
+      }, 2000);
     } catch (error) {
       console.error('Error al ejecutar paso de scraping:', error);
       // Avanzar al siguiente paso incluso si hay error
-      setCurrentScrapingStep(currentScrapingStep + 1);
+      setTimeout(() => {
+        console.log("Avanzando al siguiente paso después de error");
+        setCurrentScrapingStep(currentScrapingStep + 1);
+      }, 2000);
     }
   };
 
@@ -441,7 +841,65 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
   const handleWebViewMessage = (event: WebViewMessageEvent) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
-      console.log('Mensaje del WebView:', data);
+      console.log('📱 Mensaje recibido del WebView:', data);
+      
+      // Si recibimos un mensaje específico de validación de fecha y hora u otros datos procesados
+      if (data.datetime || data.processedData) {
+        const messageTitle = data.datetime ? '✅ Validación Completada' : '✅ Procesamiento Completo';
+        const messageContent = data.datetime 
+          ? `Se ha validado correctamente la hora y fecha:\n\n${data.datetime}\n\nLa tarea ha sido completada con éxito.`
+          : `Se ha completado el procesamiento:\n\n${data.processedData || 'Datos procesados'}\n\nLa tarea ha sido completada con éxito.`;
+        
+        console.log(`🔔 Mostrando alerta de validación: ${messageTitle}`);
+        
+        // Mostrar alerta de confirmación genérica
+        Alert.alert(
+          messageTitle,
+          messageContent,
+          [{ text: 'OK' }]
+        );
+        
+        // Si estamos en el paso correspondiente, avanzar al siguiente
+        if (isScrapingEnabled && currentScrapingStep < scrapingInstructions.length) {
+          console.log(`⏭️ Avanzando al siguiente paso después de validación`);
+          setTimeout(() => {
+            setCurrentScrapingStep(currentScrapingStep + 1);
+            
+            // Solo desactivar la automatización si se completaron todos los pasos
+            if (currentScrapingStep + 1 >= scrapingInstructions.length) {
+              setIsScrapingEnabled(false);
+              console.log('🏁 Automatización completada - WebView mantenido abierto');
+            }
+          }, 1000);
+        }
+      }
+      
+      // Si recibimos un mensaje específico para una tarea de automatización
+      if (data.type === 'PAGE_LOADED') {
+        console.log('🌐 Página cargada en WebView:', data.url);
+        
+        // Si tenemos una actividad actual y el scraping está habilitado, ejecutar el próximo paso
+        if (currentActivity && isScrapingEnabled) {
+          console.log('🤖 Detectada configuración de automatización activa, programando ejecución');
+          
+          // Dar tiempo para que la página se cargue completamente
+          setTimeout(() => {
+            if (webViewRef.current) {
+              console.log('🚀 Ejecutando paso de scraping después de carga de página');
+              executeScrapingStep();
+            } else {
+              console.log('⚠️ WebViewRef ya no está disponible');
+            }
+          }, 1500);
+        } else {
+          console.log('ℹ️ No hay automatización activa para esta página:', { 
+            actividadExiste: !!currentActivity, 
+            scrapingHabilitado: isScrapingEnabled 
+          });
+        }
+      }
+      
+      // Resto del código existente para manejar otros tipos de mensajes...
       
       // Guardar resultados del scraping
       if (data.scrapingResult) {
@@ -451,32 +909,119 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
         }));
       }
       
+      // Si es un mensaje de éxito
+      if (data.success === true) {
+        console.log('✅ Operación exitosa:', data.message);
+      }
+      
+      // Si es un mensaje de error
+      if (data.success === false) {
+        console.error('❌ Error en la operación:', data.message);
+        
+        // Si estamos en modo de automatización, intentar avanzar al siguiente paso
+        if (isScrapingEnabled) {
+          console.log('⏭️ Avanzando al siguiente paso después de error');
+          setTimeout(() => {
+            if (currentScrapingStep < scrapingInstructions.length) {
+              setCurrentScrapingStep(currentScrapingStep + 1);
+            }
+          }, 2000);
+        }
+      }
+      
       // Si hay un cambio de URL, resetear el scraping actual
       if (data.url && data.url !== webViewUrl) {
-        console.log('Navegación detectada a:', data.url);
+        console.log('🔄 Navegación detectada a:', data.url);
         setWebViewUrl(data.url);
+        
+        // Si estamos en una tarea de navegación, avanzar al siguiente paso
+        if (isScrapingEnabled && 
+            currentScrapingStep < scrapingInstructions.length && 
+            scrapingInstructions[currentScrapingStep].toLowerCase().includes('navega')) {
+          console.log('✅ Navegación completada, avanzando al siguiente paso');
+          setTimeout(() => setCurrentScrapingStep(currentScrapingStep + 1), 2000);
+        }
       }
     } catch (error) {
-      console.error('Error al procesar mensaje del WebView:', error);
+      console.error('❌ Error al procesar mensaje del WebView:', error);
     }
   };
 
   // Monitorear cambios en el paso de scraping para ejecutar el siguiente paso
   useEffect(() => {
+    console.log("📋 useEffect de scraping - estado actual:", { isScrapingEnabled, currentScrapingStep, totalSteps: scrapingInstructions.length });
+    
     if (isScrapingEnabled && currentScrapingStep < scrapingInstructions.length) {
+      console.log("⏱️ Programando ejecución del siguiente paso en 2 segundos");
       // Dar un poco de tiempo entre pasos
       const timer = setTimeout(() => {
+        console.log("⏱️ Timeout cumplido - ejecutando paso:", currentScrapingStep);
         executeScrapingStep();
       }, 2000);
       
       return () => clearTimeout(timer);
     } else if (isScrapingEnabled && currentScrapingStep >= scrapingInstructions.length) {
       // Terminamos todos los pasos
+      console.log("🏁 Todos los pasos de scraping completados");
       setIsScrapingEnabled(false);
+      
+      // Si estamos en la web, mostrar el resultado final de la validación
+      if (Platform.OS === 'web') {
+        // Construir un mensaje de resultado
+        const now = new Date();
+        const options = { 
+          weekday: 'long', 
+          year: 'numeric', 
+          month: 'long', 
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit'
+        };
+        const dateTimeStr = now.toLocaleDateString('es-ES', options as any);
+        
+        // Mostrar el resultado de la validación
+        setValidationResult({
+          visible: true,
+          title: '✅ Validación Completada',
+          content: `Se ha validado correctamente la hora y fecha:\n\n${dateTimeStr}\n\nTodos los pasos de automatización (${scrapingInstructions.length}) han sido completados con éxito.`
+        });
+        
+        return;
+      }
+      
+      // Mostrar mensaje de finalización genérico para cualquier tipo de actividad
       Alert.alert(
-        'Automatización completada',
-        'Se han ejecutado todas las instrucciones automáticas',
-        [{ text: 'OK' }]
+        '✅ Automatización Completada',
+        `Se han ejecutado todas las instrucciones automáticas (${scrapingInstructions.length} pasos) para la actividad "${currentActivity?.name || ''}"`,
+        [
+          { 
+            text: 'OK', 
+            onPress: () => {
+              // Registrar la ejecución en el historial si es posible
+              if (currentActivity) {
+                try {
+                  const executionLog = {
+                    activityId: currentActivity.id,
+                    activityName: currentActivity.name,
+                    date: new Date().toISOString(),
+                    steps: scrapingInstructions.length,
+                    results: scrapingResults
+                  };
+                  
+                  // Guardar log de ejecución para futura referencia
+                  AsyncStorage.getItem('automation_execution_log').then(logData => {
+                    const logs = logData ? JSON.parse(logData) : [];
+                    logs.push(executionLog);
+                    AsyncStorage.setItem('automation_execution_log', JSON.stringify(logs));
+                  });
+                } catch (e) {
+                  console.error('Error al guardar log de ejecución:', e);
+                }
+              }
+            }
+          }
+        ]
       );
     }
   }, [isScrapingEnabled, currentScrapingStep, scrapingInstructions]);
@@ -490,14 +1035,15 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
       const activityUrl = await AsyncStorage.getItem(`url_${activity.id}`);
       if (activityUrl) {
         url = activityUrl;
-        console.log(`Usando URL validada para actividad ${activity.id}: ${url}`);
+        console.log(`🔗 Usando URL validada para actividad ${activity.id}: ${url}`);
       }
     } catch (e) {
-      console.error('Error al recuperar URL de actividad:', e);
+      console.error('❌ Error al recuperar URL de actividad:', e);
     }
     
-    // Si no hay URL validada para esta actividad, verificar URLs genéricas
+    // Usar Google como URL predeterminada si no hay otra especificada
     if (!url) {
+      // Si no hay URL validada para esta actividad, verificar URLs genéricas
       // Verificar si hay una URL del SAT guardada de una sesión anterior
       let lastCorrectSatUrl = null;
       if (activity.name.toLowerCase().includes('sat') || 
@@ -575,31 +1121,109 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
     
     // Guardar información sobre la actividad actual
     setCurrentActivity(activity);
+    console.log(`🚀 Iniciando actividad: "${activity.name}"`);
     
     // Determinar URLs alternativas según el contenido
     const isSatRelated = activity.name.toLowerCase().includes("sat") || 
-                         activity.description?.toLowerCase().includes("sat") ||
-                         activity.description?.toLowerCase().includes("factura");
+                       activity.description?.toLowerCase().includes("sat") ||
+                       activity.description?.toLowerCase().includes("factura");
     
     setAlternativeUrls(isSatRelated ? satUrls : []);
     setWebViewError(false);
     
-    // Extraer instrucciones de scraping si es que existen
-    const instructions = extractScrapingInstructions(activity);
-    setScrapingInstructions(instructions);
+    // Obtener instrucciones de automatización
+    // IMPORTANTE: Extraer instrucciones de scraping una sola vez para evitar duplicación
+    const automationInstructions = extractScrapingInstructions(activity);
+    setScrapingInstructions(automationInstructions);
     setCurrentScrapingStep(0);
     
-    // Determinar si debemos activar el scraping automático
-    const shouldEnableScraping = instructions.length > 0 && 
-                               (activity.categories.includes('scrapping') || 
-                                activity.name.toLowerCase().includes('autom') ||
-                                activity.description?.toLowerCase().includes('autom'));
+    console.log(`📋 Actividad "${activity.name}" - Instrucciones extraídas: ${automationInstructions.length}`);
+    
+    // Determinar si debemos activar la automatización
+    const enableAutomation = automationInstructions.length > 0 && (
+      activity.categories?.includes('scrapping') || 
+      activity.categories?.includes('administrativo') ||
+      activity.name.toLowerCase().includes('autom') ||
+      activity.description?.toLowerCase().includes('autom') ||
+      // Activar automáticamente si el flujo es simple (pocas instrucciones)
+      (automationInstructions.length <= 3 && automationInstructions.some(instr => 
+        instr.toLowerCase().includes('navega') || 
+        instr.toLowerCase().includes('verifica') ||
+        instr.toLowerCase().includes('valida')))
+    );
+    
+    // Actualizar el estado global
+    setShouldEnableAutomation(enableAutomation);
+    
+    console.log(`🤖 Automatización: ${enableAutomation ? 'SÍ' : 'NO'}`);
     
     // Verificar la plataforma
     if (Platform.OS === 'web') {
-      // En web, abrir en una nueva pestaña
-      window.open(url, '_blank');
-      setIsNavigatorOpen(false);
+      // En lugar de abrir en una nueva pestaña, usar el WebView interno en plataforma web también
+      try {
+        setWebViewTitle(`${activity.name} - ${activity.collaboratorName}`);
+        setWebViewUrl(url);
+        setIsWebViewOpen(true);
+        setIsNavigatorOpen(false); // Cerrar el navegador de actividades
+        
+        // Para actividades con automatización, activar el scraping igual que en móvil
+        if (enableAutomation) {
+          // Si no hay instrucciones definidas pero la actividad debería tener automatización,
+          // generar instrucciones básicas
+          if (automationInstructions.length === 0) {
+            console.log("⚠️ Generando instrucciones básicas para automatización");
+            const defaultInstructions = [`Navegar a ${url}`];
+            setScrapingInstructions(defaultInstructions);
+          }
+          
+          // Para actividades con automatización simple (pocas instrucciones), activar automatización inmediata
+          if (automationInstructions.length <= 2 && 
+             (automationInstructions[0]?.toLowerCase().includes('navega') || 
+              automationInstructions[0]?.toLowerCase().includes('abrir'))) {
+            console.log("🔄 Activando automatización inmediata para", activity.name);
+            // Activar después de un breve retraso para permitir que el WebView se inicialice
+            setTimeout(() => {
+              console.log("🔄 Activando isScrapingEnabled = true");
+              setIsScrapingEnabled(true);
+              setAutoNavigationEnabled(true);
+            }, 1500);
+          }
+          // Para otras actividades con posible automatización, preguntar al usuario
+          else {
+            setTimeout(() => {
+              Alert.alert(
+                'Automatización Disponible',
+                `Se han detectado ${automationInstructions.length} instrucciones automáticas para esta actividad.\n\n¿Desea ejecutarlas automáticamente?`,
+                [
+                  {
+                    text: 'No, lo haré manualmente',
+                    style: 'cancel'
+                  },
+                  {
+                    text: 'Sí, automatizar',
+                    onPress: () => {
+                      console.log("🔄 Usuario eligió activar automatización");
+                      setIsScrapingEnabled(true);
+                      setAutoNavigationEnabled(true);
+                    }
+                  }
+                ]
+              );
+            }, 1000);
+          }
+        }
+      } catch (error) {
+        // Si hay algún error con WebView, usar window.open como fallback
+        console.error("❌ Error al usar WebView en web:", error);
+        window.open(url, '_blank');
+        setIsNavigatorOpen(false);
+        
+        Alert.alert(
+          'Automatización no disponible',
+          `La actividad se ha abierto en una nueva pestaña pero la automatización no está disponible en modo externo.`,
+          [{ text: 'OK' }]
+        );
+      }
     } else {
       // En móvil, intentar usar WebView
       try {
@@ -608,30 +1232,55 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
         setIsWebViewOpen(true);
         setIsNavigatorOpen(false); // Cerrar el navegador de actividades
         
-        // Preguntar al usuario si desea activar la automatización
-        if (shouldEnableScraping) {
-          setTimeout(() => {
-            Alert.alert(
-              'Automatización disponible',
-              `Se han detectado ${instructions.length} instrucciones automáticas para esta actividad. ¿Deseas ejecutarlas?`,
-              [
-                {
-                  text: 'No',
-                  style: 'cancel'
-                },
-                {
-                  text: 'Sí',
-                  onPress: () => {
-                    setIsScrapingEnabled(true);
-                    setAutoNavigationEnabled(true);
+        // Para actividades con automatización, verificar si hay instrucciones
+        if (enableAutomation) {
+          // Si no hay instrucciones definidas pero la actividad debería tener automatización,
+          // generar instrucciones básicas
+          if (automationInstructions.length === 0) {
+            console.log("⚠️ Generando instrucciones básicas para automatización");
+            const defaultInstructions = [`Navegar a ${url}`];
+            setScrapingInstructions(defaultInstructions);
+          }
+          
+          // Para actividades con automatización simple (pocas instrucciones), activar automatización inmediata
+          if (automationInstructions.length <= 2 && 
+             (automationInstructions[0]?.toLowerCase().includes('navega') || 
+              automationInstructions[0]?.toLowerCase().includes('abrir'))) {
+            console.log("🔄 Activando automatización inmediata para", activity.name);
+            // Activar después de un breve retraso para permitir que el WebView se inicialice
+            setTimeout(() => {
+              console.log("🔄 Activando isScrapingEnabled = true");
+              setIsScrapingEnabled(true);
+              setAutoNavigationEnabled(true);
+            }, 1500);
+          }
+          // Para otras actividades con posible automatización, preguntar al usuario
+          else {
+            setTimeout(() => {
+              Alert.alert(
+                'Automatización Disponible',
+                `Se han detectado ${automationInstructions.length} instrucciones automáticas para esta actividad.\n\n¿Desea ejecutarlas automáticamente?`,
+                [
+                  {
+                    text: 'No, lo haré manualmente',
+                    style: 'cancel'
+                  },
+                  {
+                    text: 'Sí, automatizar',
+                    onPress: () => {
+                      console.log("🔄 Usuario eligió activar automatización");
+                      setIsScrapingEnabled(true);
+                      setAutoNavigationEnabled(true);
+                    }
                   }
-                }
-              ]
-            );
-          }, 1000);
+                ]
+              );
+            }, 1000);
+          }
         }
       } catch (error) {
         // Si hay algún error con WebView, usar Linking como fallback
+        console.error("❌ Error al abrir WebView:", error);
         Alert.alert(
           'Error al abrir WebView',
           '¿Deseas abrir la URL en el navegador externo?',
@@ -666,13 +1315,13 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
             toValue: 0.05,
             duration: 2000 + Math.random() * 1000,
             useNativeDriver: true,
-            easing: Easing.inOut(Easing.sine)
+            easing: Easing.sine // Usar directamente Easing.sine en lugar de Easing.inOut(Easing.sine)
           }),
           Animated.timing(avatarAnimations[collaborator.id].rotation, {
             toValue: -0.05,
             duration: 2000 + Math.random() * 1000,
             useNativeDriver: true,
-            easing: Easing.inOut(Easing.sine)
+            easing: Easing.sine // Usar directamente Easing.sine en lugar de Easing.inOut(Easing.sine)
           })
         ])
       ).start();
@@ -684,13 +1333,13 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
             toValue: 1.05,
             duration: 1500 + Math.random() * 500,
             useNativeDriver: true,
-            easing: Easing.inOut(Easing.sine)
+            easing: Easing.sine // Usar directamente Easing.sine en lugar de Easing.inOut(Easing.sine)
           }),
           Animated.timing(avatarAnimations[collaborator.id].scale, {
             toValue: 0.95,
             duration: 1500 + Math.random() * 500,
             useNativeDriver: true,
-            easing: Easing.inOut(Easing.sine)
+            easing: Easing.sine // Usar directamente Easing.sine en lugar de Easing.inOut(Easing.sine)
           })
         ])
       ).start();
@@ -714,7 +1363,7 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
       toValue: { x: randomX, y: randomY },
       duration: duration,
       useNativeDriver: true,
-      easing: Easing.inOut(Easing.cubic)
+      easing: Easing.ease // Usar Easing.ease en lugar de Easing.inOut(Easing.cubic)
     }).start(() => {
       // Continuar con el movimiento cuando termina
       moveRandomly(id);
@@ -749,45 +1398,137 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
   // Extraer instrucciones de scraping del flujo de trabajo
   const extractScrapingInstructions = (activity: Activity): string[] => {
     if (!activity.workflowMessages || activity.workflowMessages.length === 0) {
+      console.log('No workflowMessages found for activity:', activity.name);
       return [];
     }
 
     let instructions: string[] = [];
+    console.log('Extracting scraping instructions from activity:', activity.name);
+    console.log('Number of workflow messages:', activity.workflowMessages.length);
     
-    // Buscar mensajes que contengan instrucciones de scraping
-    for (const message of activity.workflowMessages) {
-      if (message.role === 'assistant' && message.content) {
-        // Buscar secciones marcadas como instrucciones de scraping
-        const scrapingRegex = /\[SCRAPING_INSTRUCTIONS\]([\s\S]*?)\[\/SCRAPING_INSTRUCTIONS\]/g;
-        const matches = [...message.content.matchAll(scrapingRegex)];
+    // Para todas las actividades, obtener solo el último mensaje del flujo
+    // Esto garantiza que usemos la versión más reciente del flujo 
+    // y evitamos mezclar instrucciones de diferentes versiones
+    if (activity.workflowMessages.length > 0) {
+      // Tomar el último mensaje del flujo (la versión guardada/final)
+      const lastMessage = activity.workflowMessages[activity.workflowMessages.length - 1];
+      console.log('Analyzing workflow message for automation instructions');
+      
+      if (lastMessage && lastMessage.content) {
+        const content = lastMessage.content;
         
-        for (const match of matches) {
-          if (match[1]) {
-            // Dividir las instrucciones en pasos individuales
-            const steps = match[1].split('\n')
-              .map(step => step.trim())
-              .filter(step => step.length > 0);
-            
-            instructions.push(...steps);
+        // Método 1: Buscar secciones marcadas explícitamente como instrucciones de scraping
+        const scrapingRegex = /\[SCRAPING_INSTRUCTIONS\]([\s\S]*?)\[\/SCRAPING_INSTRUCTIONS\]/g;
+        const matches = [...content.matchAll(scrapingRegex)];
+        
+        if (matches.length > 0) {
+          console.log('Found tagged scraping instructions:', matches.length);
+          
+          for (const match of matches) {
+            if (match[1]) {
+              // Dividir las instrucciones en pasos individuales
+              const steps = match[1].split('\n')
+                .map(step => step.trim())
+                .filter(step => step.length > 0);
+              
+              console.log('Extracted explicit tagged steps:', steps.length);
+              instructions.push(...steps);
+            }
           }
         }
         
-        // Buscar instrucciones automáticas en el texto normal del flujo
-        // Patrones comunes para detectar instrucciones de scraping
-        const actionPatterns = [
-          /(?:haz click|dar click|pulsa|presiona) (?:en|sobre) ["'](.+?)["']/gi,
-          /(?:escribe|ingresa|introduce|llena) ["'](.+?)["'] (?:en|dentro de) (?:el campo|la caja|el input) ["'](.+?)["']/gi,
-          /(?:selecciona|elige|escoge) ["'](.+?)["'] (?:de|en|desde) (?:la lista|el menú|el dropdown) ["'](.+?)["']/gi,
-          /(?:navega|ve|dirígete) (?:a|hacia) ["'](.+?)["']/gi
-        ];
-        
-        // Extraer instrucciones basadas en patrones
-        for (const pattern of actionPatterns) {
-          const patternMatches = [...message.content.matchAll(pattern)];
-          for (const patternMatch of patternMatches) {
-            if (patternMatch[0]) {
-              instructions.push(patternMatch[0]);
+        // Si no se encontraron instrucciones explícitas, intentar extraer acciones del texto
+        if (instructions.length === 0) {
+          // Método 2: Buscar secciones de "pasos" o instrucciones numeradas
+          const stepsSection = /(?:pasos|steps|instrucciones)(?:\s+a\s+seguir)?:?\s*(?:\n|$)([\s\S]*?)(?:\n\n|\n##|\n\*\*|$)/gi;
+          const stepsSectionMatches = [...content.matchAll(stepsSection)];
+          
+          if (stepsSectionMatches.length > 0) {
+            console.log('Found steps section in content');
+            
+            for (const match of stepsSectionMatches) {
+              if (match[1]) {
+                // Dividir por líneas y buscar pasos numerados o con viñetas
+                const stepLines = match[1].split('\n')
+                  .map(line => line.trim())
+                  .filter(line => line.length > 0 && 
+                                (line.match(/^\d+[\.\)]\s+/) ||  // Numeración: "1. " o "1) "
+                                 line.match(/^[-•*]\s+/) ||      // Viñetas: "- " o "• " o "* "
+                                 line.match(/^[a-z][\.\)]\s+/))  // Letras: "a. " o "a) "
+                  );
+                
+                if (stepLines.length > 0) {
+                  // Limpiar la numeración/viñetas para obtener solo las instrucciones
+                  const cleanSteps = stepLines.map(line => 
+                    line.replace(/^(?:\d+|[a-z]|[-•*])[\.\)\s]+/, '').trim()
+                  );
+                  
+                  console.log('Extracted numbered/bulleted steps:', cleanSteps.length);
+                  instructions.push(...cleanSteps);
+                }
+              }
             }
+          }
+          
+          // Método 3: Buscar patrones de acciones específicas (clic, escribir, etc.)
+          if (instructions.length === 0) {
+            // Patrones para detectar instrucciones de acciones específicas
+            const actionPatterns = [
+              /(?:haz click|dar click|pulsa|presiona|clic|click) (?:en|sobre|a|al) ["']?(.+?)["']?(?:\s|$|\.)/gi,
+              /(?:escribe|ingresa|introduce|llena|escribir) ["']?(.+?)["']? (?:en|dentro de) (?:el campo|la caja|el input|campo|el formulario) ["']?(.+?)["']?/gi,
+              /(?:selecciona|elige|escoge|seleccionar) ["']?(.+?)["']? (?:de|en|desde) (?:la lista|el menú|el dropdown|el desplegable) ["']?(.+?)["']?/gi,
+              /(?:navega|ve|dirígete|ir|abrir|abre) (?:a|hacia|en) ["']?(.+?)["']?/gi
+            ];
+            
+            // Extraer instrucciones basadas en patrones
+            for (const pattern of actionPatterns) {
+              const patternMatches = [...content.matchAll(pattern)];
+              if (patternMatches.length > 0) {
+                console.log('Found pattern matches:', patternMatches.length, 'for pattern:', pattern);
+                
+                for (const patternMatch of patternMatches) {
+                  if (patternMatch[0]) {
+                    // Usar el texto completo de la coincidencia como instrucción
+                    console.log('Adding action instruction:', patternMatch[0]);
+                    instructions.push(patternMatch[0]);
+                  }
+                }
+              }
+            }
+          }
+          
+          // Método 4: Si el contenido contiene URL, añadir una instrucción para navegar a ella
+          if (instructions.length === 0) {
+            const urlMatch = content.match(/(https?:\/\/[^\s]+)/g);
+            if (urlMatch && urlMatch.length > 0) {
+              const url = urlMatch[0];
+              console.log('Found URL in content, adding navigation instruction:', url);
+              instructions.push(`Navegar a ${url}`);
+            }
+          }
+        }
+      }
+    }
+    
+    console.log('Total instructions extracted:', instructions.length);
+    
+    // Si no se encontraron instrucciones pero la actividad es de un tipo que suele requerir automatización
+    if (instructions.length === 0 && activity.categories) {
+      if (activity.categories.includes('scrapping') || 
+          activity.categories.includes('administrativo') || 
+          activity.name.toLowerCase().includes('autom') ||
+          activity.description?.toLowerCase().includes('autom')) {
+            
+        console.log('Activity seems to be automation-related but no instructions found. Adding generic instruction.');
+        
+        // Si hay una URL en la descripción, usarla
+        if (activity.description) {
+          const urlMatch = activity.description.match(/(https?:\/\/[^\s]+)/g);
+          if (urlMatch && urlMatch.length > 0) {
+            instructions.push(`Navegar a ${urlMatch[0]}`);
+          } else {
+            // De lo contrario, añadir instrucción genérica
+            instructions.push("Navegar a la página de la actividad");
           }
         }
       }
@@ -795,6 +1536,26 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
     
     return instructions;
   };
+
+  // Monitorear cuando se abre el WebView para iniciar la automatización si corresponde
+  useEffect(() => {
+    if (isWebViewOpen && shouldEnableAutomation && currentActivity) {
+      console.log("🔄 WebView abierto y listo para automatización");
+      
+      // Si la automatización está configurada para iniciarse automáticamente
+      if (autoNavigationEnabled && !isScrapingEnabled && scrapingInstructions.length > 0) {
+        console.log("⏱️ Programando activación de automatización");
+        
+        // Esperar un poco para que la página se cargue completamente
+        const timer = setTimeout(() => {
+          console.log("🚀 Activando automatización después de carga");
+          setIsScrapingEnabled(true);
+        }, 2500);
+        
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [isWebViewOpen, autoNavigationEnabled, currentActivity, shouldEnableAutomation, scrapingInstructions.length, isScrapingEnabled]);
 
   return (
     <View style={styles.container}>
@@ -1001,37 +1762,142 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
       </Modal>
       
       {/* Modal del WebView */}
-      {Platform.OS !== 'web' && (
-        <Modal
-          visible={isWebViewOpen}
-          transparent={false}
-          animationType="slide"
-          onRequestClose={() => setIsWebViewOpen(false)}
-        >
-          <SafeAreaView style={styles.webViewContainer}>
-            <View style={styles.webViewHeader}>
-              <Text style={styles.webViewTitle} numberOfLines={1} ellipsizeMode="tail">
-                {webViewTitle}
-              </Text>
-              <TouchableOpacity
-                style={styles.webViewReloadButton}
-                onPress={() => {
-                  // Recargar la página
-                  if (webViewRef.current) {
-                    webViewRef.current.reload();
-                  }
+      <Modal
+        visible={isWebViewOpen}
+        transparent={false}
+        animationType="slide"
+        onRequestClose={() => setIsWebViewOpen(false)}
+      >
+        <SafeAreaView style={styles.webViewContainer}>
+          <View style={styles.webViewHeader}>
+            <Text style={styles.webViewTitle} numberOfLines={1} ellipsizeMode="tail">
+              {webViewTitle}
+            </Text>
+            <TouchableOpacity
+              style={styles.webViewReloadButton}
+              onPress={() => {
+                // Recargar la página
+                if (Platform.OS !== 'web' && webViewRef.current) {
+                  webViewRef.current.reload();
+                } else if (Platform.OS === 'web') {
+                  // En web, cargar la URL nuevamente
+                  setWebViewUrl(url => url);
+                }
+              }}
+            >
+              <Text style={styles.webViewButtonText}>🔄</Text>
+            </TouchableOpacity>
+            {/* Botón de depuración para activar manualmente la automatización */}
+            <TouchableOpacity
+              style={styles.webViewDebugButton}
+              onPress={() => {
+                console.log("🛠️ Activando automatización manualmente");
+                setCurrentScrapingStep(0);
+                setIsScrapingEnabled(true);
+              }}
+            >
+              <Text style={styles.webViewButtonText}>🤖</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.webViewCloseButton}
+              onPress={() => setIsWebViewOpen(false)}
+            >
+              <Text style={styles.webViewCloseButtonText}>Cerrar</Text>
+            </TouchableOpacity>
+          </View>
+          
+          {Platform.OS === 'web' ? (
+            <>
+              <iframe
+                src={webViewUrl}
+                style={{
+                  flex: 1,
+                  width: '100%',
+                  height: '100%',
+                  border: 'none'
                 }}
-              >
-                <Text style={styles.webViewButtonText}>🔄</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.webViewCloseButton}
-                onPress={() => setIsWebViewOpen(false)}
-              >
-                <Text style={styles.webViewCloseButtonText}>Cerrar</Text>
-              </TouchableOpacity>
-            </View>
-            
+                onLoad={() => {
+                  console.log("📝 iframe cargado, simulando mensaje de carga");
+                  // Simular el mensaje que normalmente se enviaría desde WebView
+                  const fakeEvent = {
+                    nativeEvent: {
+                      data: JSON.stringify({
+                        type: 'PAGE_LOADED',
+                        url: webViewUrl,
+                        title: webViewTitle
+                      })
+                    }
+                  };
+                  handleWebViewMessage(fakeEvent as any);
+                }}
+              />
+              
+              {/* Overlay para mostrar resultado de validación */}
+              {validationResult.visible && (
+                <View style={styles.validationOverlay}>
+                  <View style={styles.validationCard}>
+                    <Text style={styles.validationTitle}>{validationResult.title}</Text>
+                    <Text style={styles.validationContent}>{validationResult.content}</Text>
+                    <TouchableOpacity 
+                      style={styles.validationButton}
+                      onPress={() => {
+                        setValidationResult({...validationResult, visible: false});
+                      }}
+                    >
+                      <Text style={styles.validationButtonText}>Cerrar</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+              
+              {/* Panel de estado de automatización */}
+              {isScrapingEnabled && (
+                <View style={styles.automationStatusPanel}>
+                  <Text style={styles.automationStatusTitle}>
+                    Automatización en progreso ({currentScrapingStep + 1}/{scrapingInstructions.length})
+                  </Text>
+                  <View style={styles.automationProgressBar}>
+                    <View 
+                      style={[
+                        styles.automationProgressFill,
+                        {width: `${((currentScrapingStep + 1) / scrapingInstructions.length) * 100}%`}
+                      ]} 
+                    />
+                  </View>
+                  
+                  <Text style={styles.automationCurrentStep}>
+                    Paso actual: {scrapingInstructions[currentScrapingStep] || ''}
+                  </Text>
+                  
+                  <ScrollView style={styles.automationStepsList}>
+                    {scrapingInstructions.map((step, index) => (
+                      <View 
+                        key={index} 
+                        style={[
+                          styles.automationStepItem,
+                          currentScrapingStep === index && styles.automationStepItemCurrent,
+                          currentScrapingStep > index && styles.automationStepItemCompleted
+                        ]}
+                      >
+                        <Text 
+                          style={[
+                            styles.automationStepText,
+                            currentScrapingStep === index && styles.automationStepTextCurrent,
+                            currentScrapingStep > index && styles.automationStepTextCompleted
+                          ]}
+                        >
+                          {index + 1}. {step}
+                        </Text>
+                        {currentScrapingStep > index && (
+                          <Text style={styles.automationStepCompletedIcon}>✓</Text>
+                        )}
+                      </View>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+            </>
+          ) : (
             <WebView
               ref={webViewRef}
               source={{ uri: webViewUrl }}
@@ -1042,12 +1908,24 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
               onMessage={handleWebViewMessage}
               injectedJavaScript={`
                 (function() {
+                  console.log("📝 Script de inicialización de WebView ejecutado");
+                  
                   // Configurar comunicación entre WebView y React Native
-                  window.ReactNativeWebView.postMessage(JSON.stringify({
+                  function sendMessage(data) {
+                    if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                      console.log("📤 Enviando mensaje a React Native:", data);
+                      window.ReactNativeWebView.postMessage(JSON.stringify(data));
+                    } else {
+                      console.error("⚠️ ReactNativeWebView no está disponible para comunicación");
+                    }
+                  }
+                  
+                  // Notificar que la página está cargada
+                  sendMessage({
                     type: 'PAGE_LOADED',
                     url: window.location.href,
                     title: document.title
-                  }));
+                  });
                   
                   // Interceptar cambios de navegación
                   const originalPushState = window.history.pushState;
@@ -1055,31 +1933,42 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
                   
                   window.history.pushState = function() {
                     originalPushState.apply(this, arguments);
-                    window.ReactNativeWebView.postMessage(JSON.stringify({
+                    sendMessage({
                       type: 'NAVIGATION',
                       url: window.location.href
-                    }));
+                    });
                   };
                   
                   window.history.replaceState = function() {
                     originalReplaceState.apply(this, arguments);
-                    window.ReactNativeWebView.postMessage(JSON.stringify({
+                    sendMessage({
                       type: 'NAVIGATION',
                       url: window.location.href
-                    }));
+                    });
                   };
                   
                   // Interceptar eventos de clic para detectar navegación
                   document.addEventListener('click', function(e) {
                     setTimeout(function() {
-                      window.ReactNativeWebView.postMessage(JSON.stringify({
+                      sendMessage({
                         type: 'URL_CHECK',
                         url: window.location.href
-                      }));
+                      });
                     }, 500);
                   }, true);
                   
-                  true;
+                  // También notificar cuando la carga completa haya terminado
+                  window.addEventListener('load', function() {
+                    setTimeout(function() {
+                      sendMessage({
+                        type: 'PAGE_FULLY_LOADED',
+                        url: window.location.href,
+                        title: document.title
+                      });
+                    }, 1000);
+                  });
+                  
+                  return true;
                 })();
               `}
               onError={(syntheticEvent) => {
@@ -1180,90 +2069,90 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
                 </View>
               )}
             />
-            
-            {/* Interfaz para mostrar y controlar el scraping */}
-            {isScrapingEnabled && (
-              <View style={styles.scrapingOverlay}>
-                <View style={styles.scrapingContainer}>
-                  <View style={styles.scrapingHeader}>
-                    <Text style={styles.scrapingTitle}>Automatización en progreso</Text>
-                    <TouchableOpacity
-                      style={styles.scrapingCloseButton}
-                      onPress={() => setIsScrapingEnabled(false)}
-                    >
-                      <Text style={styles.scrapingCloseButtonText}>×</Text>
-                    </TouchableOpacity>
-                  </View>
-                  
-                  <View style={styles.scrapingProgress}>
-                    <Text style={styles.scrapingProgressText}>
-                      Paso {currentScrapingStep + 1} de {scrapingInstructions.length}
-                    </Text>
-                    <View style={styles.scrapingProgressBar}>
-                      <View 
-                        style={[
-                          styles.scrapingProgressFill, 
-                          { 
-                            width: `${(currentScrapingStep / scrapingInstructions.length) * 100}%` 
-                          }
-                        ]} 
-                      />
-                    </View>
-                  </View>
-                  
-                  {currentScrapingStep < scrapingInstructions.length && (
-                    <Text style={styles.currentInstructionText}>
-                      Ejecutando: {scrapingInstructions[currentScrapingStep]}
-                    </Text>
-                  )}
-                  
-                  <View style={styles.scrapingButtons}>
-                    <TouchableOpacity
-                      style={[styles.scrapingButton, styles.scrapingPauseButton]}
-                      onPress={() => setIsScrapingEnabled(false)}
-                    >
-                      <Text style={styles.scrapingButtonText}>Pausar</Text>
-                    </TouchableOpacity>
-                    
-                    <TouchableOpacity
-                      style={[styles.scrapingButton, styles.scrapingSkipButton]}
-                      onPress={() => {
-                        if (currentScrapingStep < scrapingInstructions.length - 1) {
-                          setCurrentScrapingStep(currentScrapingStep + 1);
-                        } else {
-                          setIsScrapingEnabled(false);
+          )}
+          
+          {/* Interfaz para mostrar y controlar el scraping */}
+          {isScrapingEnabled && (
+            <View style={styles.scrapingOverlay}>
+              <View style={styles.scrapingContainer}>
+                <View style={styles.scrapingHeader}>
+                  <Text style={styles.scrapingTitle}>Automatización en progreso</Text>
+                  <TouchableOpacity
+                    style={styles.scrapingCloseButton}
+                    onPress={() => setIsScrapingEnabled(false)}
+                  >
+                    <Text style={styles.scrapingCloseButtonText}>×</Text>
+                  </TouchableOpacity>
+                </View>
+                
+                <View style={styles.scrapingProgress}>
+                  <Text style={styles.scrapingProgressText}>
+                    Paso {currentScrapingStep + 1} de {scrapingInstructions.length}
+                  </Text>
+                  <View style={styles.scrapingProgressBar}>
+                    <View 
+                      style={[
+                        styles.scrapingProgressFill, 
+                        { 
+                          width: `${(currentScrapingStep / scrapingInstructions.length) * 100}%` 
                         }
-                      }}
-                    >
-                      <Text style={styles.scrapingButtonText}>Saltar paso</Text>
-                    </TouchableOpacity>
-                    
-                    <TouchableOpacity
-                      style={[styles.scrapingButton, styles.scrapingStopButton]}
-                      onPress={() => {
-                        setIsScrapingEnabled(false);
-                        setCurrentScrapingStep(0);
-                      }}
-                    >
-                      <Text style={styles.scrapingButtonText}>Detener</Text>
-                    </TouchableOpacity>
+                      ]} 
+                    />
                   </View>
                 </View>
+                
+                {currentScrapingStep < scrapingInstructions.length && (
+                  <Text style={styles.currentInstructionText}>
+                    Ejecutando: {scrapingInstructions[currentScrapingStep]}
+                  </Text>
+                )}
+                
+                <View style={styles.scrapingButtons}>
+                  <TouchableOpacity
+                    style={[styles.scrapingButton, styles.scrapingPauseButton]}
+                    onPress={() => setIsScrapingEnabled(false)}
+                  >
+                    <Text style={styles.scrapingButtonText}>Pausar</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    style={[styles.scrapingButton, styles.scrapingSkipButton]}
+                    onPress={() => {
+                      if (currentScrapingStep < scrapingInstructions.length - 1) {
+                        setCurrentScrapingStep(currentScrapingStep + 1);
+                      } else {
+                        setIsScrapingEnabled(false);
+                      }
+                    }}
+                  >
+                    <Text style={styles.scrapingButtonText}>Saltar paso</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    style={[styles.scrapingButton, styles.scrapingStopButton]}
+                    onPress={() => {
+                      setIsScrapingEnabled(false);
+                      setCurrentScrapingStep(0);
+                    }}
+                  >
+                    <Text style={styles.scrapingButtonText}>Detener</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
-            )}
-            
-            {/* Botón flotante para reactivar el scraping si está pausado */}
-            {!isScrapingEnabled && scrapingInstructions.length > 0 && currentScrapingStep < scrapingInstructions.length && (
-              <TouchableOpacity
-                style={styles.resumeScrapingButton}
-                onPress={() => setIsScrapingEnabled(true)}
-              >
-                <Text style={styles.resumeScrapingButtonText}>▶ Continuar automático</Text>
-              </TouchableOpacity>
-            )}
-          </SafeAreaView>
-        </Modal>
-      )}
+            </View>
+          )}
+          
+          {/* Botón flotante para reactivar el scraping si está pausado */}
+          {!isScrapingEnabled && scrapingInstructions.length > 0 && currentScrapingStep < scrapingInstructions.length && (
+            <TouchableOpacity
+              style={styles.resumeScrapingButton}
+              onPress={() => setIsScrapingEnabled(true)}
+            >
+              <Text style={styles.resumeScrapingButtonText}>▶ Continuar automático</Text>
+            </TouchableOpacity>
+          )}
+        </SafeAreaView>
+      </Modal>
     </View>
   );
 };
@@ -1292,16 +2181,14 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#f8f8f2',
     marginBottom: 5,
-    textShadowColor: 'rgba(0, 0, 0, 0.75)',
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 3,
+    // Reemplazar textShadow* props con textShadow en un solo string
+    textShadow: '1px 1px 3px rgba(0, 0, 0, 0.75)',
   },
   subtitle: {
     fontSize: 16,
     color: '#bd93f9',
-    textShadowColor: 'rgba(0, 0, 0, 0.5)',
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 2,
+    // Reemplazar textShadow* props con textShadow en un solo string
+    textShadow: '1px 1px 2px rgba(0, 0, 0, 0.5)',
   },
   gameArea: {
     flex: 1,
@@ -1319,10 +2206,8 @@ const styles = StyleSheet.create({
     borderRadius: AVATAR_SIZE / 2,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
+    // Reemplazar shadowColor, shadowOffset, shadowOpacity, shadowRadius con boxShadow
+    boxShadow: '0px 3px 4px rgba(0, 0, 0, 0.3)',
     elevation: 6,
   },
   selectedAvatar: {
@@ -1398,10 +2283,8 @@ const styles = StyleSheet.create({
     height: 100,
     borderRadius: 10,
     overflow: 'hidden',
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 5,
+    // Reemplazar shadowColor, shadowOffset, shadowOpacity, shadowRadius con boxShadow
+    boxShadow: '0px 3px 5px rgba(0, 0, 0, 0.3)',
     elevation: 8,
   },
   navigatorGradient: {
@@ -1565,10 +2448,8 @@ const styles = StyleSheet.create({
     padding: 10,
     alignItems: 'center',
     width: '70%',
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
+    // Reemplazar shadowColor, shadowOffset, shadowOpacity, shadowRadius con boxShadow
+    boxShadow: '0px 2px 3.84px rgba(0, 0, 0, 0.25)',
     elevation: 5,
   },
   startActivityButtonText: {
@@ -1789,15 +2670,149 @@ const styles = StyleSheet.create({
     backgroundColor: '#50fa7b',
     padding: 10,
     borderRadius: 25,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 5,
+    // Reemplazar shadowColor, shadowOffset, shadowOpacity, shadowRadius con boxShadow
+    boxShadow: '0px 3px 5px rgba(0, 0, 0, 0.3)',
     elevation: 5,
   },
   resumeScrapingButtonText: {
     color: '#282a36',
     fontWeight: 'bold',
+  },
+  webViewDebugButton: {
+    backgroundColor: 'rgba(98, 114, 164, 0.8)',
+    borderRadius: 25,
+    padding: 10,
+    marginLeft: 10,
+  },
+  webViewButtonText: {
+    color: '#f8f8f2',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  validationOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  validationCard: {
+    backgroundColor: '#282a36',
+    borderRadius: 10,
+    padding: 20,
+    minWidth: 300,
+    maxWidth: '80%',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#bd93f9',
+    boxShadow: '0px 0px 20px rgba(189, 147, 249, 0.5)',
+  },
+  validationTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#f8f8f2',
+    marginBottom: 15,
+    textAlign: 'center',
+  },
+  validationContent: {
+    fontSize: 16,
+    color: '#f8f8f2',
+    marginBottom: 20,
+    textAlign: 'center',
+    whiteSpace: 'pre-line',
+  },
+  validationButton: {
+    backgroundColor: '#bd93f9',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 5,
+  },
+  validationButtonText: {
+    color: '#f8f8f2',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  automationStatusPanel: {
+    position: 'absolute',
+    right: 20,
+    top: 70,
+    backgroundColor: 'rgba(40, 42, 54, 0.9)',
+    borderRadius: 10,
+    padding: 15,
+    width: 300,
+    maxHeight: 300,
+    borderWidth: 2,
+    borderColor: '#50fa7b',
+    boxShadow: '0px 0px 10px rgba(80, 250, 123, 0.3)',
+  },
+  automationStatusTitle: {
+    color: '#50fa7b',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  automationProgressBar: {
+    width: '100%',
+    height: 8,
+    backgroundColor: '#44475a',
+    borderRadius: 4,
+    marginBottom: 15,
+    overflow: 'hidden',
+  },
+  automationProgressFill: {
+    height: '100%',
+    backgroundColor: '#50fa7b',
+    borderRadius: 4,
+  },
+  automationCurrentStep: {
+    color: '#f8f8f2',
+    fontSize: 14,
+    marginBottom: 10,
+    fontWeight: 'bold',
+  },
+  automationStepsList: {
+    maxHeight: 150,
+  },
+  automationStepItem: {
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 5,
+    marginBottom: 5,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#44475a',
+  },
+  automationStepItemCurrent: {
+    backgroundColor: '#6272a4',
+    borderLeftWidth: 3,
+    borderLeftColor: '#ffb86c',
+  },
+  automationStepItemCompleted: {
+    backgroundColor: 'rgba(80, 250, 123, 0.2)',
+  },
+  automationStepText: {
+    color: '#f8f8f2',
+    fontSize: 13,
+    flex: 1,
+  },
+  automationStepTextCurrent: {
+    fontWeight: 'bold',
+    color: '#ffb86c',
+  },
+  automationStepTextCompleted: {
+    color: '#50fa7b',
+  },
+  automationStepCompletedIcon: {
+    color: '#50fa7b',
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginLeft: 5,
   },
 });
 

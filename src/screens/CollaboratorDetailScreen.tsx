@@ -861,6 +861,66 @@ const CollaboratorDetailScreen: React.FC<CollaboratorDetailScreenProps> = ({
     });
   };
 
+  // Nueva función para guardar la versión final del flujo de trabajo
+  const saveWorkflowFinal = async () => {
+    if (!workflowActivityId) return;
+    
+    const activity = activities.find(act => act.id === workflowActivityId);
+    if (!activity || !activity.workflowMessages || activity.workflowMessages.length === 0) {
+      Alert.alert('Sin mensajes', 'No hay mensajes en el flujo de trabajo para guardar.');
+      return;
+    }
+    
+    // Obtener el último mensaje del asistente
+    const lastAssistantMessage = [...activity.workflowMessages]
+      .reverse()
+      .find(msg => msg.role === 'assistant');
+      
+    if (!lastAssistantMessage) {
+      Alert.alert('Sin respuesta', 'No hay una respuesta del asistente para guardar como versión final.');
+      return;
+    }
+    
+    try {
+      // Primero, hacemos una copia de seguridad del flujo completo antes de actualizarlo
+      await AsyncStorage.setItem(`workflow_backup_${activity.id}`, JSON.stringify(activity.workflowMessages));
+      
+      // Crear un nuevo objeto de actividad con solo el último mensaje como flujo
+      const updatedActivities = activities.map(act => 
+        act.id === workflowActivityId 
+          ? { 
+              ...act, 
+              workflowMessages: [lastAssistantMessage],
+              isAnalyzingWorkflow: false 
+            } 
+          : act
+      );
+      
+      setActivities(updatedActivities);
+      setHasChanges(true);
+      
+      // Guardar las actividades actualizadas
+      await AsyncStorage.setItem(`activities_${collaborator.id}`, JSON.stringify(updatedActivities));
+      
+      Alert.alert(
+        'Éxito', 
+        'Se ha actualizado el flujo del proceso con la última versión generada. Las instrucciones automáticas se actualizarán la próxima vez que ejecute la actividad.',
+        [
+          { 
+            text: 'OK',
+            onPress: () => {
+              // Cerrar el modal después de guardar
+              setTimeout(() => setWorkflowModalVisible(false), 500);
+            } 
+          }
+        ]
+      );
+    } catch (error) {
+      console.error('Error al guardar la versión final:', error);
+      Alert.alert('Error', 'No se pudo guardar la versión final del flujo de trabajo. Intentar de nuevo.');
+    }
+  };
+
   // Renderizar la pantalla de detalles
   return (
     <View style={styles.container}>
@@ -1209,8 +1269,25 @@ const CollaboratorDetailScreen: React.FC<CollaboratorDetailScreenProps> = ({
                         >
                           <Text style={styles.predefinedButtonText}>🔗 Validar URLs</Text>
                         </TouchableOpacity>
+
+                        <TouchableOpacity 
+                          style={[styles.predefinedButton, styles.saveFlowButton]}
+                          onPress={saveWorkflowFinal}
+                          disabled={isProcessingWorkflow}
+                        >
+                          <Text style={styles.predefinedButtonText}>💾 Guardar Versión Final</Text>
+                        </TouchableOpacity>
                       </ScrollView>
                     </View>
+                    
+                    {/* Nuevo botón flotante para actualizar flujo rápidamente */}
+                    <TouchableOpacity 
+                      style={styles.updateFlowButton}
+                      onPress={saveWorkflowFinal}
+                      disabled={isProcessingWorkflow}
+                    >
+                      <Text style={styles.updateFlowButtonText}>Actualizar Flujo 🔄</Text>
+                    </TouchableOpacity>
                     
                     <View style={styles.workflowInputContainer}>
                       <TextInput
@@ -1522,18 +1599,6 @@ const CollaboratorDetailScreen: React.FC<CollaboratorDetailScreenProps> = ({
                     {showAddCustomUrl ? 'Cancelar' : 'Agregar URL'}
                   </Text>
                 </TouchableOpacity>
-                
-                {selectedUrl && !showAddCustomUrl && !isEditingUrl && (
-                  <TouchableOpacity
-                    style={styles.urlActionButton}
-                    onPress={() => {
-                      setEditingUrl(selectedUrl);
-                      setIsEditingUrl(true);
-                    }}
-                  >
-                    <Text style={styles.urlActionButtonText}>Editar</Text>
-                  </TouchableOpacity>
-                )}
                 
                 {selectedUrl && !showAddCustomUrl && !isEditingUrl && (
                   <TouchableOpacity
@@ -2366,6 +2431,30 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 14,
     textAlign: 'center',
+  },
+  saveFlowButton: {
+    backgroundColor: '#50fa7b',
+    borderWidth: 2,
+    borderColor: '#282a36',
+    paddingHorizontal: 15,
+    marginHorizontal: 5,
+  },
+  updateFlowButton: {
+    backgroundColor: '#50fa7b',
+    padding: 12,
+    borderRadius: 5,
+    alignItems: 'center',
+    marginVertical: 10,
+    marginHorizontal: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  updateFlowButtonText: {
+    color: '#282a36',
+    fontWeight: 'bold',
   },
 });
 
