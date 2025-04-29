@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, View, Alert, Animated, Dimensions } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ActivityProvider } from './src/contexts/ActivityContext';
 
 import LoginScreen from './src/screens/LoginScreen';
 import RegisterScreen from './src/screens/RegisterScreen';
@@ -162,63 +163,65 @@ export default function App() {
 
   // Renderizar la pantalla actual con animación
   return (
-    <View style={styles.container}>
-      <Animated.View 
-        style={[
-          styles.screenContainer,
-          {
-            opacity: screenOpacity,
-            transform: [{ translateX: screenTranslateX }]
-          }
-        ]}
-      >
-        {currentScreen === 'login' && (
-          <LoginScreen 
-            onLogin={handleLogin} 
-            onNavigateToRegister={() => changeScreen('register')} 
-          />
-        )}
+    <ActivityProvider>
+      <View style={styles.container}>
+        <Animated.View 
+          style={[
+            styles.screenContainer,
+            {
+              opacity: screenOpacity,
+              transform: [{ translateX: screenTranslateX }]
+            }
+          ]}
+        >
+          {currentScreen === 'login' && (
+            <LoginScreen 
+              onLogin={handleLogin} 
+              onNavigateToRegister={() => changeScreen('register')} 
+            />
+          )}
+          
+          {currentScreen === 'register' && (
+            <RegisterScreen 
+              onRegister={handleRegister} 
+              onNavigateToLogin={() => changeScreen('login', 'left')} 
+            />
+          )}
+          
+          {currentScreen === 'game-menu' && (
+            <GameMenuScreen 
+              username={username} 
+              onLogout={handleLogout} 
+              onStartGame={handleStartGame}
+              onSettings={handleSettings}
+            />
+          )}
+          
+          {currentScreen === 'settings' && (
+            <SettingsScreen
+              onBack={handleBackToMenu}
+            />
+          )}
+          
+          {currentScreen === 'game-play' && (
+            <GamePlayScreen
+              onBack={handleBackToMenu}
+              onSelectCollaborator={handleSelectCollaborator}
+            />
+          )}
+          
+          {currentScreen === 'collaborator-detail' && selectedCollaborator && (
+            <CollaboratorDetailScreen
+              collaborator={selectedCollaborator}
+              areaName={selectedAreaName}
+              onBack={handleBackToGamePlay}
+            />
+          )}
+        </Animated.View>
         
-        {currentScreen === 'register' && (
-          <RegisterScreen 
-            onRegister={handleRegister} 
-            onNavigateToLogin={() => changeScreen('login', 'left')} 
-          />
-        )}
-        
-        {currentScreen === 'game-menu' && (
-          <GameMenuScreen 
-            username={username} 
-            onLogout={handleLogout} 
-            onStartGame={handleStartGame}
-            onSettings={handleSettings}
-          />
-        )}
-        
-        {currentScreen === 'settings' && (
-          <SettingsScreen
-            onBack={handleBackToMenu}
-          />
-        )}
-        
-        {currentScreen === 'game-play' && (
-          <GamePlayScreen
-            onBack={handleBackToMenu}
-            onSelectCollaborator={handleSelectCollaborator}
-          />
-        )}
-        
-        {currentScreen === 'collaborator-detail' && selectedCollaborator && (
-          <CollaboratorDetailScreen
-            collaborator={selectedCollaborator}
-            areaName={selectedAreaName}
-            onBack={handleBackToGamePlay}
-          />
-        )}
-      </Animated.View>
-      
-      <StatusBar style="light" />
-    </View>
+        <StatusBar style="light" />
+      </View>
+    </ActivityProvider>
   );
 }
 

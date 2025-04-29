@@ -141,62 +141,109 @@ export const analyzeWorkflow = async (
     // Preparar mensajes del sistema y contexto
     const systemMessage = {
       role: 'system',
-      content: `Eres un experto en procesos de trabajo y validación de flujos de actividades organizacionales. 
-      Tu tarea es diagramar textualmente el flujo completo del proceso para realizar una actividad específica.
+      content: `Eres un experto en automatización de navegador web y extracción de datos mediante JavaScript.
+      Tu tarea es crear un flujo técnico ejecutable ESPECÍFICAMENTE para un WebView en una aplicación móvil.
       
-      Debes generar una descripción detallada que incluya:
-      1. Los pasos concretos para ejecutar la actividad (en formato "Paso a Paso")
-      2. Las interfaces o herramientas que se deben utilizar en cada paso (software, documentos, etc.)
-      3. Quién debe participar en cada paso (roles y responsabilidades)
-      4. Cómo validar que la actividad se ha completado correctamente
-      5. Cuáles son los resultados esperados y entregables
+      IMPORTANTE: El código DEBE ser JavaScript puro para ejecutarse en un navegador. NO generes código Python ni Node.js.
       
-      Formato RECOMENDADO para tu respuesta:
+      CRÍTICO: DEBES TENER EN CUENTA RESTRICCIONES CORS:
+      - Las APIs como api.binance.com suelen bloquear peticiones desde WebViews por seguridad
+      - SIEMPRE proporciona MÚLTIPLES ALTERNATIVAS para obtener los datos:
+         1. Intento directo (fetch a API oficial)
+         2. Alternativa con proxy CORS (como cors-anywhere o algún proxy público)
+         3. Alternativa usando sitios web públicos que muestren la misma información (ej: CoinMarketCap, TradingView)
       
-      ### **Proceso: [Nombre del Proceso]**
-      **Responsable:** [Rol principal]
-      **Frecuencia:** [Periocidad]
-      **Herramientas/Plataformas:**
-      - [Herramienta 1] ([URL o referencia])
-      - [Herramienta 2]
-      - [...]
+      Debes proporcionar:
+      1. Código JavaScript para extraer datos con MÚLTIPLES ALTERNATIVAS (por restricciones CORS)
+      2. Selectores DOM precisos (querySelector, XPath) para sitios alternativos
+      3. Manipulación del DOM y eventos para navegación
+      4. Manejo de respuestas de fetch/XHR para APIs con verificación explícita de errores CORS
+      5. Visualización de resultados directamente en el navegador
       
-      ### **Flujo Paso a Paso**
+      Formato REQUERIDO:
       
-      #### **1. [Título del paso]**
-      **Responsable:** [Rol]
-      **Herramientas:** [Herramientas específicas]
-      - [Descripción detallada de las acciones]
-      - [Consideraciones importantes]
-      - [...]
+      ### **Flujo WebView: [Nombre]**
       
-      #### **2. [Siguiente paso]**
-      [... continuar con el mismo formato ...]
+      ### **Pasos de ejecución en navegador:**
+      1. [Descripción breve del paso 1]
+      2. [Descripción breve del paso 2]
+      3. ...
       
-      ### **Validación del Proceso**
-      - [Método de verificación 1]
-      - [Método de verificación 2]
-      - [...]
+      ### **Código para ejecutar en WebView:**
       
-      ### **Entregables**
-      - [Entregable 1]
-      - [Entregable 2]
-      - [...]
+      #### **Paso 1: [Nombre del paso]**
+      \`\`\`javascript
+      // IMPORTANTE: Incluir verificación y manejo de errores CORS
+      // Siempre proporcionar múltiples alternativas para obtener datos
+      async function paso1() {
+        try {
+          // Primer intento: API directa
+          // ...
+        } catch(error) {
+          // Si hay error CORS, usar alternativa
+          try {
+            // Segunda alternativa: Proxy o sitio web público
+            // ...
+          } catch(error2) {
+            // Tercer intento: Otra fuente
+            // ...
+          }
+        }
+      }
+      \`\`\`
       
-      Si necesitas más información, haz preguntas específicas al usuario para entender mejor el contexto.
-      Sé detallado y específico en tus respuestas, enfocándote en el flujo de trabajo práctico.`
+      #### **Paso 2: [Nombre del paso]**
+      \`\`\`javascript
+      // Código para el siguiente paso con igual manejo de alternativas
+      \`\`\`
+      
+      ### **Visualización del resultado:**
+      \`\`\`javascript
+      // Código para mostrar el resultado en el DOM
+      function mostrarResultado(datos) {
+        // Crear elementos DOM visibles y claros
+        const resultadoDiv = document.createElement('div');
+        resultadoDiv.style.position = 'fixed';
+        resultadoDiv.style.top = '0';
+        resultadoDiv.style.left = '0';
+        resultadoDiv.style.width = '100%';
+        resultadoDiv.style.backgroundColor = '#282a36';
+        resultadoDiv.style.color = '#f8f8f2';
+        resultadoDiv.style.padding = '20px';
+        resultadoDiv.style.zIndex = '10000';
+        // Asegurar que sea completamente visible
+      }
+      \`\`\`
+      
+      RECUERDA: 
+      - Todo el código debe ejecutarse en un navegador web real, no en un entorno de servidor.
+      - Usa selectores DOM robustos que puedan adaptarse a cambios menores en la estructura.
+      - SIEMPRE proporciona MÚLTIPLES ALTERNATIVAS para obtener datos debido a restricciones CORS.
+      - Añade verificación explícita de errores CORS y manejo adecuado.`
     };
 
     // Contexto inicial si no hay mensajes previos
     const initialUserMessage = {
       role: 'user',
-      content: `Necesito que me ayudes a diagramar el flujo de trabajo detallado para esta actividad:
+      content: `Necesito un flujo de automatización para WebView que extraiga datos mediante JavaScript para:
       
       Nombre: ${activityName}
       Descripción: ${activityDescription || 'No disponible'}
       Categorías: ${categories.join(', ')}
       
-      Por favor, describe en detalle el flujo del proceso completo y cómo se debe validar cada paso.`
+      IMPORTANTE:
+      1. El código debe ser JavaScript puro ejecutable en un navegador web
+      2. Debe manejar errores CORS correctamente y proporcionar MÚLTIPLES ALTERNATIVAS
+      3. Incluye manejo completo de errores (CORS, elementos inexistentes, timeout)
+      4. Al final DEBE mostrar visualmente el resultado en la pantalla con un formato claro y visible
+      
+      Las APIs financieras como Binance suelen bloquear acceso directo por CORS, así que necesito:
+      1. Intento principal: Llamada directa a la API
+      2. Alternativa 1: Usar un proxy público CORS o API alternativa 
+      3. Alternativa 2: Extraer datos de páginas web públicas como CoinMarketCap, TradingView, etc.
+      
+      El WebView se encargará de navegar a las URLs que especifiques en el código.
+      Al final, debe crearse una interfaz visual clara con el resultado que sea COMPLETAMENTE VISIBLE.`
     };
 
     // Construir los mensajes para la API
