@@ -18,7 +18,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
-import { ActivityCategory, analyzeWorkflow, WorkflowMessage } from '../services/openRouterService';
+import { ActivityCategory, analyzeWorkflow, WorkflowMessage, validateSearchResult } from '../services/openRouterService';
 import { WebView } from 'react-native-webview';
 import { WebViewMessageEvent } from 'react-native-webview/lib/WebViewTypes';
 import { useActivity } from '../contexts';
@@ -192,6 +192,9 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
     source: 'Google Finance',
     searchQuery: ''
   });
+  
+  // First add a state variable to track whether result has been validated
+  const [isResultValidated, setIsResultValidated] = useState(false);
   
   // Cargar datos al inicio
   useEffect(() => {
@@ -1199,6 +1202,71 @@ Tu respuesta debe contener ÚNICAMENTE los términos de búsqueda, nada más.`
     </View>
   );
 
+  // Función para validar el resultado
+  const handleValidateResult = async () => {
+    if (!currentActivity) return;
+    
+    setIsValidatingWithLLM(true);
+    console.log('🔍 [Validación] Iniciando validación del resultado...');
+    
+    try {
+      // Preparar los datos a validar
+      const dataToValidate = {
+        type: 'exchange_rate',
+        rate: consolidatedResult.exchangeRate,
+        from: 'USD',
+        to: 'MXN',
+        date: consolidatedResult.date,
+        source: consolidatedResult.source,
+        searchQuery: consolidatedResult.searchQuery
+      };
+      
+      // Llamar al servicio de validación
+      const result = await validateSearchResult(
+        currentActivity.name,
+        currentActivity.description,
+        dataToValidate
+      );
+      
+      // Set isResultValidated to true when validation is complete
+      setIsResultValidated(true);
+      
+      // Actualizar el estado de validación para mostrar en la UI
+      setLlmValidationResult({
+        visible: true,
+        step: 'Validación de Resultado',
+        result: result.explanation,
+        success: result.isValid
+      });
+      
+      // Mostrar estado de validación
+      setValidationResult({
+        visible: true,
+        title: result.isValid ? '✅ Resultado Válido' : '❌ Resultado Inválido',
+        content: result.explanation
+      });
+      
+      console.log(`✅ [Validación] Resultado: ${result.isValid ? 'VÁLIDO' : 'INVÁLIDO'}`);
+      console.log(`📝 [Validación] Explicación: ${result.explanation}`);
+    } catch (error) {
+      console.error('❌ Error al validar el resultado:', error);
+      setLlmValidationResult({
+        visible: true,
+        step: 'Error en Validación',
+        result: `Error: ${error instanceof Error ? error.message : String(error)}`,
+        success: false
+      });
+      
+      setValidationResult({
+        visible: true,
+        title: '❌ Error en Validación',
+        content: `Error: ${error instanceof Error ? error.message : String(error)}`
+      });
+    } finally {
+      setIsValidatingWithLLM(false);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <LinearGradient
@@ -1881,6 +1949,7 @@ Tu respuesta debe contener ÚNICAMENTE los términos de búsqueda, nada más.`
                         step.status === 'completed' ? styles.stepCompleted :
                         step.status === 'in-progress' ? styles.stepInProgress :
                         step.status === 'failed' ? styles.stepFailed :
+                        step.status === 'pending' ? styles.stepPending :
                         styles.stepPending
                       ]}
                     />
@@ -2000,7 +2069,9 @@ Tu respuesta debe contener ÚNICAMENTE los términos de búsqueda, nada más.`
         <View style={styles.loadingModalContainer}>
           <View style={styles.resultModalContent}>
             <View style={styles.resultHeader}>
-              <Text style={styles.resultTitle}>Resultado Consolidado</Text>
+              <Text style={styles.resultTitle}>
+                {isResultValidated ? 'Resultado Validado' : 'Resultado Consolidado'}
+              </Text>
               <Text style={styles.resultSubtitle}>Búsqueda completada con éxito</Text>
             </View>
             
@@ -2026,16 +2097,29 @@ Tu respuesta debe contener ÚNICAMENTE los términos de búsqueda, nada más.`
               <Text style={styles.resultQueryValue}>{consolidatedResult.searchQuery}</Text>
             </View>
             
-            <TouchableOpacity
-              style={styles.resultCloseButton}
-              onPress={() => {
-                setShowResultModal(false);
-                // Opcionalmente, cerrar también el WebView
-                setIsWebViewOpen(false);
-              }}
-            >
-              <Text style={styles.resultCloseButtonText}>Finalizar Actividad</Text>
-            </TouchableOpacity>
+            <View style={styles.buttonRow}>
+              <TouchableOpacity
+                style={styles.resultButton}
+                onPress={() => {
+                  setShowResultModal(false);
+                  setIsResultValidated(false); // Reset validation state
+                  // Opcionalmente, cerrar también el WebView
+                  setIsWebViewOpen(false);
+                }}
+              >
+                <Text style={styles.resultButtonText}>Finalizar Actividad</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.resultButton, styles.validateButton, isValidatingWithLLM && styles.disabledButton]}
+                onPress={handleValidateResult}
+                disabled={isValidatingWithLLM}
+              >
+                <Text style={styles.resultButtonText}>
+                  {isValidatingWithLLM ? 'Validando...' : 'Validar Resultado'}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -3270,11 +3354,60 @@ const styles = StyleSheet.create({
     borderRadius: 25,
     padding: 10,
     alignItems: 'center',
+    marginTop: 15,
   },
   resultCloseButtonText: {
     color: '#f8f8f2',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginTop: 15,
+  },
+  resultButton: {
+    backgroundColor: 'rgba(98, 114, 164, 0.8)',
+    borderRadius: 25,
+    padding: 10,
+    alignItems: 'center',
+    flex: 1,
+    marginHorizontal: 5,
+  },
+  validateButton: {
+    backgroundColor: 'rgba(80, 250, 123, 0.3)',
+  },
+  resultButtonText: {
+    color: '#f8f8f2',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  disabledButton: {
+    opacity: 0.6,
+  },
+  validationResultContainer: {
+    marginTop: 15,
+    padding: 10,
+    borderRadius: 8,
+    width: '100%',
+  },
+  validResultContainer: {
+    backgroundColor: 'rgba(80, 250, 123, 0.2)',
+  },
+  invalidResultContainer: {
+    backgroundColor: 'rgba(255, 85, 85, 0.2)',
+  },
+  validationResultTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#f8f8f2',
+    marginBottom: 5,
+  },
+  validationResultExplanation: {
+    fontSize: 14,
+    color: '#f8f8f2',
+    lineHeight: 20,
   },
 });
 

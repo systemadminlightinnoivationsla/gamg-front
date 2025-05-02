@@ -1847,3 +1847,107 @@ export const checkOpenRouterApiKey = async (): Promise<{
     };
   }
 }; 
+
+/**
+ * Valida el resultado de búsqueda contra la actividad original
+ */
+export const validateSearchResult = async (
+  activityName: string,
+  activityDescription: string,
+  resultData: any
+): Promise<{ isValid: boolean; explanation: string }> => {
+  try {
+    // Preparar mensaje del sistema
+    const systemMessage = {
+      role: 'system',
+      content: `Eres un validador experto que evalúa si un resultado cumple con los requisitos de una tarea.
+      Tu trabajo es analizar objetivamente si el resultado proporcionado satisface la consulta original.
+      Debes responder con un objeto JSON con las siguientes propiedades:
+      1. isValid: boolean (true si el resultado es correcto, false si no)
+      2. explanation: string (explicación detallada de tu evaluación)`
+    };
+
+    // Mensaje del usuario
+    const userMessage = {
+      role: 'user',
+      content: `Valida si el siguiente resultado cumple con la tarea solicitada:
+      
+      Tarea: ${activityName}
+      Descripción: ${activityDescription}
+      
+      Resultado obtenido:
+      ${JSON.stringify(resultData, null, 2)}
+      
+      ¿El resultado cumple correctamente con lo solicitado en la tarea? Explica por qué.`
+    };
+
+    // Construir los mensajes para la API
+    const messages = [systemMessage, userMessage];
+    
+    console.log('🔄 Validando resultado con OpenRouter API...');
+    
+    // Usar la función con timeout para hacer la llamada a la API
+    const data = await callOpenRouterWithTimeout<any>(
+      messages, 
+      { temperature: 0.3, max_tokens: 1000 },
+      30000 // 30 segundos de timeout
+    );
+    
+    // Verificar si estamos usando el sistema de fallback
+    const usingFallback = isFallbackResponse(data);
+    if (usingFallback) {
+      console.log('ℹ️ Usando respuesta generada por el sistema de fallback para validación');
+    }
+    
+    // Verificar si se recibió la estructura esperada
+    if (!data.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
+      console.error('❌ Respuesta de API sin choices:', data);
+      return { 
+        isValid: true, 
+        explanation: 'Error en la validación, asumiendo resultado válido por defecto.' 
+      };
+    }
+
+    // Extraer la respuesta del modelo
+    const content = data.choices[0]?.message?.content;
+    
+    if (!content) {
+      console.error('❌ No se recibió contenido del modelo');
+      return { 
+        isValid: true, 
+        explanation: 'Error en la validación, asumiendo resultado válido por defecto.' 
+      };
+    }
+
+    // Intentar parsear el JSON de la respuesta
+    try {
+      // Extraer el JSON si está envuelto en ```json ... ```
+      const jsonMatch = content.match(/```json\n([\s\S]*?)\n```/) || content.match(/```\n([\s\S]*?)\n```/);
+      const jsonContent = jsonMatch ? jsonMatch[1] : content;
+      
+      const result = JSON.parse(jsonContent);
+      return {
+        isValid: !!result.isValid,
+        explanation: result.explanation || 'No se proporcionó explicación'
+      };
+    } catch (parseError) {
+      console.error('❌ Error al parsear JSON de respuesta:', parseError);
+      // Análisis manual si no se puede parsear JSON
+      const isValid = content.toLowerCase().includes('true') || 
+                       content.toLowerCase().includes('válido') || 
+                       content.toLowerCase().includes('correcto');
+      
+      return {
+        isValid,
+        explanation: 'Validación manual: ' + content.slice(0, 200) + '...'
+      };
+    }
+    
+  } catch (error: any) {
+    console.error('❌ Error al validar el resultado:', error);
+    return { 
+      isValid: true, 
+      explanation: `Error durante la validación: ${error.message || String(error)}. Asumiendo resultado válido por defecto.` 
+    };
+  }
+};
