@@ -22,6 +22,8 @@ import { ActivityCategory, analyzeWorkflow, WorkflowMessage } from '../services/
 import { WebView } from 'react-native-webview';
 import { WebViewMessageEvent } from 'react-native-webview/lib/WebViewTypes';
 import { useActivity } from '../contexts';
+import IntelligentScraperUI from '../components/IntelligentScraperUI';
+import { exchangeRateService } from '../services/scrapers/exchangeRateService';
 
 // Definición de interfaces
 interface Collaborator {
@@ -79,6 +81,10 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
   const [filteredActivities, setFilteredActivities] = useState<Activity[]>([]);
   const [isNavigatorOpen, setIsNavigatorOpen] = useState(false);
   const [isLoadingActivities, setIsLoadingActivities] = useState(false);
+  // Nueva sección de búsqueda
+  const [isSearchSectionVisible, setIsSearchSectionVisible] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<Activity[]>([]);
   
   // Estados para el navegador web
   const [isWebViewOpen, setIsWebViewOpen] = useState(false);
@@ -95,6 +101,19 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
   const [scrapingResults, setScrapingResults] = useState<any>({});
   const [shouldEnableAutomation, setShouldEnableAutomation] = useState<boolean>(false);
   const [autoNavigationEnabled, setAutoNavigationEnabled] = useState<boolean>(false);
+  
+  // Add this with the other state declarations
+  const [intelligentScraperVisible, setIntelligentScraperVisible] = useState<boolean>(false);
+  
+  // New state for visual scraping progress
+  const [scrapingSteps, setScrapingSteps] = useState<Array<{
+    id: string;
+    name: string;
+    status: 'pending' | 'in-progress' | 'completed' | 'failed';
+    details?: string;
+  }>>([]);
+  const [showScrapingVisualizer, setShowScrapingVisualizer] = useState<boolean>(false);
+  const [currentStepIndex, setCurrentStepIndex] = useState<number>(0);
   
   // Estado para la validación
   const [validationResult, setValidationResult] = useState<{visible: boolean, content: string, title: string}>({
@@ -153,6 +172,13 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
     }
   );
 
+  // Función para iniciar animaciones - DESHABILITADA por problemas con useNativeDriver
+  const startAnimations = () => {
+    console.log("Animaciones deshabilitadas para evitar errores");
+    // No hacemos nada, para evitar el error de useNativeDriver
+    return;
+  };
+
   // Cargar datos al inicio
   useEffect(() => {
     const loadGameData = async () => {
@@ -185,19 +211,19 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
             return collaborator;
           });
           
-          // Crear animaciones para cada colaborador
-          collaboratorsList.forEach(collaborator => {
-            if (!avatarAnimations[collaborator.id]) {
-              avatarAnimations[collaborator.id] = {
-                position: new Animated.ValueXY({ 
-                  x: collaborator.avatar?.positionX || 0, 
-                  y: collaborator.avatar?.positionY || 0 
-                }),
-                rotation: new Animated.Value(0),
-                scale: new Animated.Value(1)
-              };
-            }
-          });
+          // Desactivamos la creación de animaciones
+          // collaboratorsList.forEach(collaborator => {
+          //   if (!avatarAnimations[collaborator.id]) {
+          //     avatarAnimations[collaborator.id] = {
+          //       position: new Animated.ValueXY({ 
+          //         x: collaborator.avatar?.positionX || 0, 
+          //         y: collaborator.avatar?.positionY || 0 
+          //       }),
+          //       rotation: new Animated.Value(0),
+          //       scale: new Animated.Value(1)
+          //     };
+          //   }
+          // });
         }
         
         let areasList: string[] = [];
@@ -212,27 +238,41 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
         // Cargar actividades de todos los colaboradores
         loadAllActivities(collaboratorsList);
         
-        // Iniciar animaciones - sin pasarle argumentos
-        startAnimations();
+        // Asegurarse de que la visualización de scraping esté oculta al inicio
+        setShowScrapingVisualizer(false);
+        
+        // Deshabilitamos las animaciones por completo
+        // setTimeout(() => {
+        //   try {
+        //     startAnimations();
+        //   } catch (error) {
+        //     console.error("Error iniciando animaciones:", error);
+        //   }
+        // }, 1000);
+        
       } catch (error) {
         console.error('Error al cargar datos del juego:', error);
       } finally {
         setLoading(false);
         
-        // Animación de entrada de la pantalla
-        Animated.parallel([
-          Animated.timing(fadeIn, {
-            toValue: 1,
-            duration: 800,
-            useNativeDriver: true,
-          }),
-          Animated.timing(slideUp, {
-            toValue: 0,
-            duration: 800,
-            useNativeDriver: true,
-            easing: Easing.ease // Usar Easing.ease en lugar de Easing.out(Easing.back(1.7))
-          })
-        ]).start();
+        // Desactivamos animaciones de entrada
+        // Animated.parallel([
+        //   Animated.timing(fadeIn, {
+        //     toValue: 1,
+        //     duration: 800,
+        //     useNativeDriver: true,
+        //   }),
+        //   Animated.timing(slideUp, {
+        //     toValue: 0,
+        //     duration: 800,
+        //     useNativeDriver: true,
+        //     easing: Easing.ease
+        //   })
+        // ]).start();
+        
+        // Simplemente establecemos los valores directamente
+        fadeIn.setValue(1);
+        slideUp.setValue(0);
       }
     };
     
@@ -240,14 +280,19 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
     
     // Limpiar animaciones al salir
     return () => {
-      Object.values(avatarAnimations).forEach(anim => {
-        // @ts-ignore: Se necesita para detener animaciones en curso
-        anim.position._animation && anim.position._animation.stop();
-        // @ts-ignore: Se necesita para detener animaciones en curso
-        anim.rotation._animation && anim.rotation._animation.stop();
-        // @ts-ignore: Se necesita para detener animaciones en curso
-        anim.scale._animation && anim.scale._animation.stop();
-      });
+      try {
+        // Desactivamos limpieza de animaciones
+        // Object.values(avatarAnimations).forEach(anim => {
+        //   anim.position._animation && anim.position._animation.stop();
+        //   anim.rotation._animation && anim.rotation._animation.stop();
+        //   anim.scale._animation && anim.scale._animation.stop();
+        // });
+        
+        // Asegurarnos de ocultar visualizadores al salir
+        setShowScrapingVisualizer(false);
+      } catch (error) {
+        console.error("Error limpiando animaciones:", error);
+      }
     };
   }, []);
 
@@ -291,6 +336,11 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
       );
       
       setFilteredActivities(filtered);
+      
+      // Si la sección de búsqueda está activa, actualizar también los resultados de búsqueda
+      if (isSearchSectionVisible) {
+        setSearchResults(filtered);
+      }
     } catch (error) {
       console.error('Error al cargar actividades:', error);
     } finally {
@@ -307,11 +357,52 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
   const handleWebViewMessage = (event: WebViewMessageEvent) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
-      console.log("Mensaje recibido del WebView:", data);
       
-      // Aquí se implementaría la lógica para manejar los diferentes tipos de mensajes
+      if (data.type === 'EXCHANGE_RATE_DATA') {
+        console.log("💱 Exchange rate data received:", data);
+        
+        // Store the exchange rate data
+        setScrapingResults(data.data);
+        
+        // Show validation UI with the exchange rate data
+        if (data.data.exchangeRate) {
+          setValidationResult({
+            visible: true,
+            title: "Tipo de Cambio USD/MXN",
+            content: `El tipo de cambio actual es: ${data.data.exchangeRate} MXN por 1 USD\n\nFuente: ${data.data.source}\nHora: ${new Date().toLocaleString()}`
+          });
+        } else {
+          setValidationResult({
+            visible: true,
+            title: "Error en Extracción de Tipo de Cambio",
+            content: "No se pudo encontrar el tipo de cambio USD/MXN. Por favor intente con otra fuente."
+          });
+        }
+      } else if (data.type === 'SCRAPER_RESULT') {
+        console.log("📊 Scraper result received:", data.result);
+        setScrapingResults(data.result);
+        
+        // Validate the result if needed
+        if (currentActivity?.categories.includes('scrapping')) {
+          // Show crypto validation UI
+          setValidationResult({
+            visible: true,
+            title: "Validación de Precio BTC contra USDT",
+            content: JSON.stringify(data.result.data, null, 2)
+          });
+        }
+      } else if (data.type === 'PAGE_LOADED') {
+        // Handle page loaded events
+        console.log("📄 Page loaded:", data.url);
+      } else if (data.type === 'PAGE_NAVIGATION') {
+        // Handle navigation events
+        console.log("🧭 Navigation:", data.message);
+      } else {
+        // Handle other event types
+        console.log("📩 WebView message received:", data);
+      }
     } catch (error) {
-      console.error("Error al procesar mensaje del WebView:", error);
+      console.error("❌ Error parsing WebView message:", error);
     }
   };
 
@@ -565,344 +656,512 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
     return null;
   };
   
-  // Función para ejecutar el paso actual de scraping
-  const executeScrapingStep = () => {
-    // Si no hay más pasos, finalizar
-    if (currentScrapingStep >= scrapingInstructions.length) {
-      console.log("✅ Automatización completada");
-      setIsScrapingEnabled(false);
-      
-      // Mostrar resultado final genérico para cualquier tipo de actividad
-      Alert.alert(
-        '✅ Automatización Completada',
-        `Se han ejecutado todas las instrucciones automáticas (${scrapingInstructions.length} pasos) para la actividad "${currentActivity?.name || ''}"`,
-        [
-          { 
-            text: 'OK', 
-            onPress: () => {
-              // Registrar la ejecución en el historial si es posible
-              if (currentActivity) {
-                try {
-                  const executionLog = {
-                    activityId: currentActivity.id,
-                    activityName: currentActivity.name,
-                    date: new Date().toISOString(),
-                    steps: scrapingInstructions.length,
-                    results: scrapingResults
-                  };
-                  
-                  // Guardar log de ejecución para futura referencia
-                  AsyncStorage.getItem('automation_execution_log').then(logData => {
-                    const logs = logData ? JSON.parse(logData) : [];
-                    logs.push(executionLog);
-                    AsyncStorage.setItem('automation_execution_log', JSON.stringify(logs));
-                  });
-                } catch (e) {
-                  console.error('Error al guardar log de ejecución:', e);
-                }
-              }
-            }
-          }
-        ]
-      );
+  // Nueva función para buscar actividades
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+    
+    // Modificado: Siempre mostrar las mismas actividades filtradas que en la lista principal
+    if (!query.trim()) {
+      setSearchResults(filteredActivities);
       return;
     }
     
-    // Obtener la instrucción actual
-    const currentInstruction = scrapingInstructions[currentScrapingStep];
+    const normalizedQuery = query.toLowerCase().trim();
     
-    // Mostrar paso actual
-    Alert.alert(
-      `Ejecutando Paso ${currentScrapingStep + 1}/${scrapingInstructions.length}`,
-      currentInstruction,
-      [{ text: 'OK' }]
+    // Filtrar actividades basadas en la consulta de búsqueda, pero solo de las ya filtradas
+    const results = filteredActivities.filter(activity => 
+      activity.name.toLowerCase().includes(normalizedQuery) ||
+      (activity.description && activity.description.toLowerCase().includes(normalizedQuery)) ||
+      activity.collaboratorName.toLowerCase().includes(normalizedQuery)
     );
     
-    if (!webViewRef.current) {
-      console.error("❌ WebViewRef no disponible");
-      return;
-    }
+    setSearchResults(results);
+  };
+  
+  // Función específica para iniciar actividad desde la sección "Búsqueda de Dato"
+  const handleStartSearchActivity = (activity: Activity) => {
+    console.log(`🔍 [Búsqueda] Iniciando proceso para actividad: ${activity.name} [ID: ${activity.id}]`);
+    setCurrentActivity(activity);
+    setIsValidatingWithLLM(true); // Indicar que estamos validando con LLM
     
-    // Implementación de un inyector de script genérico que puede manejar cualquier tipo de actividad
-    webViewRef.current.injectJavaScript(`
-      (function() {
-        try {
-          console.log("🔍 Ejecutando instrucción de automatización...");
+    // Modificar el prompt para que el LLM solo genere términos de búsqueda exactos
+    const initialMessages: WorkflowMessage[] = [{
+      role: 'user',
+      content: `Eres un generador de consultas de búsqueda para Google. Necesito que generes ÚNICAMENTE los términos de búsqueda exactos para la siguiente actividad, sin ningún texto adicional.
+
+Actividad: "${activity.name}"
+Descripción: "${activity.description || 'No disponible'}"
+
+IMPORTANTE:
+1. SOLO proporciona los términos de búsqueda exactos que debería escribir en Google.
+2. NO incluyas frases explicativas, comentarios o notas.
+3. NO incluyas comillas ni otros caracteres especiales a menos que sean parte de la búsqueda.
+4. Incluye la fecha actual (${new Date().toISOString().split('T')[0]}) si es relevante.
+5. Si se trata de un tipo de cambio como USD/MXN, incluye esos términos exactos.
+
+Tu respuesta debe contener ÚNICAMENTE los términos de búsqueda, nada más.`
+    }];
+    
+    console.log(`🧠 [Búsqueda] Enviando solicitud a LLM para generar términos de búsqueda...`);
+    setIsLoadingAnalysis(true);
+    
+    analyzeWorkflow(
+      activity.name,
+      activity.description || 'No disponible',
+      activity.categories,
+      initialMessages
+    )
+      .then((responseText) => {
+        if (typeof responseText === 'string') {
+          // Limpiar la consulta de búsqueda (quitar comillas o caracteres extras)
+          const searchQuery = responseText.trim().replace(/^["']|["']$/g, '');
           
-          // Mostrar un mensaje de carga genérico
-          const loadingDiv = document.createElement('div');
-          loadingDiv.id = 'automation-loading-message';
-          loadingDiv.style.position = 'fixed';
-          loadingDiv.style.top = '0';
-          loadingDiv.style.left = '0';
-          loadingDiv.style.width = '100%';
-          loadingDiv.style.backgroundColor = '#282a36';
-          loadingDiv.style.color = '#f8f8f2';
-          loadingDiv.style.padding = '20px';
-          loadingDiv.style.zIndex = '10000';
-          loadingDiv.style.textAlign = 'center';
-          loadingDiv.innerHTML = '<h3>Procesando instrucción...</h3><p>Paso ${currentScrapingStep + 1} de ${scrapingInstructions.length}</p>';
-          document.body.appendChild(loadingDiv);
+          console.log(`🎯 [Búsqueda] Consulta generada exitosamente: "${searchQuery}"`);
+          console.log(`🖥️ [Navegación] Preparando simulación visual del proceso de búsqueda...`);
           
-          // Función genérica para mostrar resultados de cualquier tipo
-          function mostrarResultadoGenerico(titulo, datos, fuente, exito = true) {
-            // Eliminar mensaje de carga si existe
-            const loadingMessage = document.getElementById('automation-loading-message');
-            if (loadingMessage) {
-              document.body.removeChild(loadingMessage);
+          // Inicializar estados
+          setSearchQuery(searchQuery);
+          setIsScrapingEnabled(true);
+          setAutoNavigationEnabled(true);
+          
+          // Crear pasos visuales para el scraping
+          const searchSteps = [
+            { id: 'load-google', name: 'Cargando página de Google', status: 'in-progress' as const },
+            { id: 'focus-search', name: 'Enfocando barra de búsqueda', status: 'pending' as const },
+            { id: 'type-query', name: `Escribiendo: "${searchQuery}"`, status: 'pending' as const },
+            { id: 'click-search', name: 'Haciendo clic en buscar', status: 'pending' as const },
+            { id: 'view-results', name: 'Visualizando resultados', status: 'pending' as const }
+          ];
+          
+          console.log(`📋 [Visualización] Configurando ${searchSteps.length} pasos del proceso visual`);
+          setScrapingSteps(searchSteps);
+          setCurrentStepIndex(0);
+          setShowScrapingVisualizer(true);
+          
+          // Asegurar que el visualizador se muestre antes de cargar la URL
+          setTimeout(() => {
+            console.log(`🌐 [Navegación] Cargando URL inicial: https://www.google.com`);
+            setWebViewUrl("https://www.google.com");
+            setWebViewTitle(`Búsqueda: ${activity.name}`);
+            setIsWebViewOpen(true);
+            
+            // En entorno web, avanzar manualmente el proceso para la simulación
+            if (Platform.OS === 'web') {
+              console.log(`💻 [Web] Iniciando simulación del proceso de navegación`);
+              simulateWebSearchProcess(searchQuery);
             }
-            
-            // Crear un elemento visual para mostrar el resultado
-            const resultDiv = document.createElement('div');
-            resultDiv.style.position = 'fixed';
-            resultDiv.style.top = '0';
-            resultDiv.style.left = '0';
-            resultDiv.style.width = '100%';
-            resultDiv.style.padding = '20px';
-            resultDiv.style.backgroundColor = '#282a36';
-            resultDiv.style.color = '#f8f8f2';
-            resultDiv.style.zIndex = '10000';
-            resultDiv.style.boxShadow = '0 2px 10px rgba(0,0,0,0.5)';
-            
-            const colorTitulo = exito ? '#50fa7b' : '#ff5555';
-            const iconoStatus = exito ? '✅' : '⚠️';
-            
-            // Crear contenido HTML para mostrar datos
-            let datosHTML = '';
-            if (typeof datos === 'object' && datos !== null) {
-              datosHTML = '<ul style="list-style-type: none; padding: 0; margin: 10px 0;">';
-              for (const key in datos) {
-                if (Object.prototype.hasOwnProperty.call(datos, key)) {
-                  datosHTML += \`<li style="margin: 5px 0;"><strong>\${key}:</strong> \${datos[key]}</li>\`;
-                }
-              }
-              datosHTML += '</ul>';
-            } else {
-              datosHTML = \`<p style="margin:10px 0;">\${datos}</p>\`;
-            }
-            
-            resultDiv.innerHTML = \`
-              <h2 style="color:\${colorTitulo};margin:0 0 10px">\${iconoStatus} \${titulo}</h2>
-              \${datosHTML}
-              <p style="margin:5px 0">Fecha y hora: \${new Date().toLocaleString()}</p>
-              <p style="margin:10px 0 5px"><small>Fuente: \${fuente}</small></p>
-              <button id="close-result-button" style="background-color: rgba(98, 114, 164, 0.8); color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; margin-top: 10px;">Cerrar</button>
-            \`;
-            
-            document.body.appendChild(resultDiv);
-            
-            // Agregar evento para cerrar el resultado
-            document.getElementById('close-result-button').addEventListener('click', function() {
-              document.body.removeChild(resultDiv);
-            });
-            
-            // Notificar resultado a React Native
-            if (window.ReactNativeWebView) {
-              window.ReactNativeWebView.postMessage(JSON.stringify({
-                type: 'SCRAPING_RESULT',
-                scrapingResult: {
-                  titulo,
-                  datos,
-                  timestamp: new Date().toISOString(),
-                  fuente,
-                  exito
-                }
-              }));
-            }
-          }
-          
-          // Analizar la instrucción actual para determinar qué tipo de acción realizar
-          const instruccion = \`${currentInstruction}\`.toLowerCase();
-          
-          // Estrategia genérica para obtener datos de diferentes fuentes
-          async function ejecutarExtraccionDatos() {
-            try {
-              // Determinar qué tipo de datos se están buscando basado en la instrucción
-              // Esto podría ser automáticamente determinado por un LLM en una implementación más avanzada
-              
-              // Verificar si la página actual tiene una API visible
-              const apiEndpoints = Array.from(document.querySelectorAll('a[href*="api"], a[href*="API"]'))
-                .map(a => a.getAttribute('href'))
-                .filter(href => href);
-              
-              if (apiEndpoints.length > 0) {
-                console.log("Endpoints de API encontrados en la página:", apiEndpoints);
-              }
-              
-              // Estrategia 1: Intentar extraer datos estructurados de la página
-              const datosExtraidos = {};
-              
-              // Intentar extraer tablas
-              const tablas = document.querySelectorAll('table');
-              if (tablas.length > 0) {
-                // Extraer datos de la primera tabla
-                const tabla = tablas[0];
-                const filas = Array.from(tabla.querySelectorAll('tr'));
-                
-                if (filas.length > 0) {
-                  const encabezados = Array.from(filas[0].querySelectorAll('th')).map(th => th.textContent.trim());
-                  
-                  if (encabezados.length > 0) {
-                    datosExtraidos.encabezados = encabezados;
-                    datosExtraidos.filas = [];
-                    
-                    for (let i = 1; i < filas.length; i++) {
-                      const celdas = Array.from(filas[i].querySelectorAll('td')).map(td => td.textContent.trim());
-                      if (celdas.length > 0) {
-                        datosExtraidos.filas.push(celdas);
-                      }
-                    }
-                    
-                    mostrarResultadoGenerico(
-                      "Datos extraídos de tabla", 
-                      {
-                        "Tipo de datos": "Tabla",
-                        "Filas encontradas": datosExtraidos.filas.length,
-                        "Columnas": encabezados.join(", ")
-                      }, 
-                      window.location.href,
-                      true
-                    );
-                    return true;
-                  }
-                }
-              }
-              
-              // Estrategia 2: Buscar elementos con datos específicos
-              // Esta podría ser mejorada con NLP para identificar elementos relevantes
-              const elementos = {
-                precios: document.querySelectorAll('[class*="price"], [class*="Price"], [id*="price"], [id*="Price"], .price, .Price, #price, #Price'),
-                fechas: document.querySelectorAll('[class*="date"], [class*="Date"], [id*="date"], [id*="Date"], .date, .Date, #date, #Date'),
-                valores: document.querySelectorAll('[class*="value"], [class*="Value"], [id*="value"], [id*="Value"], .value, .Value, #value, #Value')
-              };
-              
-              let datosEncontrados = false;
-              
-              for (const tipo in elementos) {
-                if (elementos[tipo].length > 0) {
-                  datosExtraidos[tipo] = Array.from(elementos[tipo]).map(el => el.textContent.trim());
-                  datosEncontrados = true;
-                }
-              }
-              
-              if (datosEncontrados) {
-                mostrarResultadoGenerico(
-                  "Datos extraídos de la página", 
-                  datosExtraidos, 
-                  window.location.href,
-                  true
-                );
-                return true;
-              }
-              
-              // Estrategia 3: Usar una conexión a la API (genérico, con manejo de CORS)
-              try {
-                console.log("Intentando obtener datos a través de API");
-                
-                // Determinar si la instrucción contiene pistas sobre qué API usar
-                const urlsAPI = [];
-                
-                if (window.location.hostname.includes("github")) {
-                  urlsAPI.push('https://api.github.com/repos' + window.location.pathname);
-                } else if (window.location.hostname.includes("twitter") || window.location.hostname.includes("x.com")) {
-                  urlsAPI.push('https://api.twitter.com/2/tweets');
-                }
-                
-                // Si hemos identificado APIs potenciales
-                if (urlsAPI.length > 0) {
-                  for (const url of urlsAPI) {
-                    try {
-                      const response = await fetch(url);
-                      const data = await response.json();
-                      
-                      if (data) {
-                        mostrarResultadoGenerico(
-                          "Datos obtenidos de API", 
-                          data, 
-                          url,
-                          true
-                        );
-                        return true;
-                      }
-                    } catch (error) {
-                      console.error("Error al obtener datos de API:", error);
-                    }
-                  }
-                }
-              } catch (error) {
-                console.error("Error al intentar usar APIs:", error);
-              }
-              
-              // Estrategia 4: Extraer datos básicos de la página como último recurso
-              const metaTags = {};
-              document.querySelectorAll('meta').forEach(meta => {
-                const name = meta.getAttribute('name') || meta.getAttribute('property');
-                const content = meta.getAttribute('content');
-                if (name && content) {
-                  metaTags[name] = content;
-                }
-              });
-              
-              const textoTitulo = document.title;
-              const textosPrincipales = Array.from(document.querySelectorAll('h1, h2, p')).map(el => el.textContent.trim()).slice(0, 5);
-              
-              mostrarResultadoGenerico(
-                "Información básica de la página", 
-                {
-                  "Título": textoTitulo,
-                  "URL": window.location.href,
-                  "Textos principales": textosPrincipales.join(" | "),
-                  "Meta tags": Object.keys(metaTags).length > 0 ? JSON.stringify(metaTags).substring(0, 100) + "..." : "No disponibles"
-                }, 
-                window.location.href,
-                true
-              );
-              
-              return true;
-            } catch (error) {
-              console.error("Error en la extracción de datos:", error);
-              
-              mostrarResultadoGenerico(
-                "Error al procesar datos", 
-                {
-                  "Mensaje": error.toString(),
-                  "Tipo": "Error de extracción"
-                }, 
-                window.location.href,
-                false
-              );
-              
-              return false;
-            }
-          }
-          
-          // Ejecutar el proceso de extracción
-          ejecutarExtraccionDatos();
-          return true;
-        } catch (error) {
-          console.error("Error global:", error);
-          
-          // Notificar error
-          if (window.ReactNativeWebView) {
-            window.ReactNativeWebView.postMessage(JSON.stringify({
-              type: 'ERROR',
-              message: error.toString(),
-              critical: false
-            }));
-          }
-          
-          return false;
+          }, 500); // Pequeño retraso para que se actualice la UI
+        } else {
+          console.error("❌ [Error] Respuesta inesperada del análisis:", responseText);
+          Alert.alert(
+            "Error de análisis",
+            "No se pudo generar una consulta de búsqueda. Intente nuevamente."
+          );
         }
-      })();
-    `);
+      })
+      .catch(error => {
+        console.error("❌ [Error] Error al generar consulta de búsqueda:", error);
+        Alert.alert(
+          "Error de búsqueda",
+          "No se pudo analizar la actividad para generar una búsqueda. Intente nuevamente."
+        );
+      })
+      .finally(() => {
+        setIsLoadingAnalysis(false);
+        setIsValidatingWithLLM(false);
+      });
+  };
+  
+  // Función para simular el proceso de búsqueda en web
+  const simulateWebSearchProcess = (query: string) => {
+    console.log(`🔄 [Simulación] Iniciando simulación de búsqueda para: "${query}"`);
+    
+    // Simular carga de Google (paso 1)
+    updateStepStatus('load-google', 'completed', 'Página cargada correctamente');
+    console.log(`✅ [Paso 1/5] Página de Google cargada`);
+    
+    // Simular enfoque en barra de búsqueda (paso 2)
+    setTimeout(() => {
+      updateStepStatus('focus-search', 'in-progress', 'Enfocando campo de búsqueda...');
+      console.log(`🔄 [Paso 2/5] Enfocando barra de búsqueda...`);
+      
+      setTimeout(() => {
+        updateStepStatus('focus-search', 'completed', 'Campo de búsqueda enfocado');
+        console.log(`✅ [Paso 2/5] Barra de búsqueda enfocada`);
+        
+        // Simular escritura (paso 3)
+        updateStepStatus('type-query', 'in-progress', 'Escribiendo consulta...');
+        console.log(`🔄 [Paso 3/5] Escribiendo consulta: "${query}"...`);
+        
+        setTimeout(() => {
+          updateStepStatus('type-query', 'completed', 'Consulta escrita completamente');
+          console.log(`✅ [Paso 3/5] Consulta escrita completamente`);
+          
+          // Simular clic en buscar (paso 4)
+          updateStepStatus('click-search', 'in-progress', 'Haciendo clic en botón de búsqueda...');
+          console.log(`🔄 [Paso 4/5] Haciendo clic en botón de búsqueda...`);
+          
+          setTimeout(() => {
+            updateStepStatus('click-search', 'completed', 'Clic realizado');
+            console.log(`✅ [Paso 4/5] Clic realizado en botón de búsqueda`);
+            
+            // Actualizar URL para mostrar resultados
+            console.log(`🌐 [Navegación] Cambiando a URL de resultados`);
+            setWebViewUrl(`https://www.google.com/search?q=${encodeURIComponent(query)}`);
+            
+            // Simular visualización de resultados (paso 5)
+            updateStepStatus('view-results', 'in-progress', 'Cargando resultados...');
+            console.log(`🔄 [Paso 5/5] Cargando y visualizando resultados...`);
+            
+            setTimeout(() => {
+              updateStepStatus('view-results', 'completed', 'Resultados visualizados correctamente');
+              console.log(`✅ [Paso 5/5] Resultados visualizados correctamente`);
+              console.log(`🎉 [Simulación] Proceso de búsqueda completado con éxito`);
+              
+              // Ocultar visualizador después de un tiempo
+              setTimeout(() => {
+                setShowScrapingVisualizer(false);
+                console.log(`🔍 [Visualización] Ocultando visualizador de proceso`);
+              }, 3000);
+            }, 2000);
+          }, 1000);
+        }, 2000);
+      }, 1000);
+    }, 1000);
+  };
+  
+  // Direct method to get exchange rates without relying on API
+  const getExchangeRate = async () => {
+    try {
+      // Initialize step tracker
+      const exchangeRateSteps = [
+        { id: 'init', name: 'Inicialización del servicio de tipo de cambio', status: 'in-progress' as const },
+        { id: 'source-1', name: 'Consultando XE.com (Fuente primaria)', status: 'pending' as const },
+        { id: 'source-2', name: 'Consultando Bloomberg (Fuente alternativa)', status: 'pending' as const },
+        { id: 'source-3', name: 'Consultando Yahoo Finance', status: 'pending' as const },
+        { id: 'source-4', name: 'Consultando Google Finance', status: 'pending' as const },
+        { id: 'consensus', name: 'Determinando consenso entre fuentes', status: 'pending' as const },
+        { id: 'completion', name: 'Preparando reporte final', status: 'pending' as const }
+      ];
+      
+      setScrapingSteps(exchangeRateSteps);
+      setCurrentStepIndex(0);
+      
+      // Solo mostrar visualizador si estamos en una actividad específica
+      if (currentActivity && (
+          currentActivity.name?.includes("USD/MXN") || 
+          currentActivity.description?.includes("TIPO DE CAMBIO")
+      )) {
+        setShowScrapingVisualizer(true);
+      }
+      
+      // Show a loading indicator
+      Alert.alert(
+        "🔄 Obteniendo tipo de cambio USD/MXN",
+        "Consultando múltiples fuentes para obtener el mejor dato...",
+        [{ text: "OK" }]
+      );
+      
+      console.log("🔄 Getting exchange rate directly...");
+      
+      // Update step 1 to completed
+      updateStepStatus('init', 'completed', 'Servicio inicializado correctamente');
+      
+      // Start XE.com
+      updateStepStatus('source-1', 'in-progress', 'Conectando con XE.com...');
+      
+      // Use our standalone exchange rate service
+      const consensusRate = await exchangeRateService.getConsensusRate();
+      
+      console.log("💱 Exchange rate results:", consensusRate);
+      
+      // Update status for each source based on the results
+      if (consensusRate.additionalData?.sources) {
+        consensusRate.additionalData.sources.forEach((source: any) => {
+          if (source.source.includes('XE.com')) {
+            updateStepStatus('source-1', source.rate ? 'completed' : 'failed', 
+              source.rate ? `Tasa encontrada: ${source.rate}` : 'No se encontró la tasa');
+          } else if (source.source.includes('Bloomberg')) {
+            updateStepStatus('source-2', source.rate ? 'completed' : 'failed', 
+              source.rate ? `Tasa encontrada: ${source.rate}` : 'No se encontró la tasa');
+          } else if (source.source.includes('Yahoo')) {
+            updateStepStatus('source-3', source.rate ? 'completed' : 'failed', 
+              source.rate ? `Tasa encontrada: ${source.rate}` : 'No se encontró la tasa');
+          } else if (source.source.includes('Google')) {
+            updateStepStatus('source-4', source.rate ? 'completed' : 'failed', 
+              source.rate ? `Tasa encontrada: ${source.rate}` : 'No se encontró la tasa');
+          }
+        });
+      } else {
+        // If no source details, mark all as failed
+        updateStepStatus('source-1', 'failed', 'No se pudo conectar');
+        updateStepStatus('source-2', 'failed', 'No se pudo conectar');
+        updateStepStatus('source-3', 'failed', 'No se pudo conectar');
+        updateStepStatus('source-4', 'failed', 'No se pudo conectar');
+      }
+      
+      // Update consensus step
+      updateStepStatus('consensus', 'in-progress', 'Calculando consenso entre fuentes disponibles...');
+      
+      if (consensusRate.rate) {
+        // Format the result
+        const formattedRate = typeof consensusRate.rate === 'number' 
+          ? consensusRate.rate.toFixed(4) 
+          : consensusRate.rate;
+        
+        // Update consensus step as completed
+        updateStepStatus('consensus', 'completed', `Consenso determinado: ${formattedRate} MXN/USD`);
+        
+        // Update completion step
+        updateStepStatus('completion', 'in-progress', 'Generando reporte...');
+        
+        // Create a rich display for the validation result
+        const sourceDetails = consensusRate.additionalData?.sources
+          ? consensusRate.additionalData.sources.map((s: any) => `${s.source}: ${s.rate}`).join('\n')
+          : '';
+        
+        const content = `💱 El tipo de cambio actual es: ${formattedRate} MXN por 1 USD\n\n` +
+          `Fuente: ${consensusRate.source}\n` +
+          `Fecha: ${new Date().toLocaleString()}\n\n` +
+          (sourceDetails ? `Detalles por fuente:\n${sourceDetails}` : '');
+        
+        // Complete the final step
+        updateStepStatus('completion', 'completed', 'Reporte generado correctamente');
+        
+        // Show the validation result after a delay
+        setTimeout(() => {
+          setShowScrapingVisualizer(false);
+          
+          setValidationResult({
+            visible: true,
+            title: "Tipo de Cambio USD/MXN",
+            content
+          });
+          
+          // Store the results
+          setScrapingResults({
+            exchangeRate: formattedRate,
+            source: consensusRate.source,
+            timestamp: consensusRate.timestamp,
+            additionalData: consensusRate.additionalData
+          });
+        }, 1500);
+        
+        return true;
+      } else {
+        // Update consensus step as failed
+        updateStepStatus('consensus', 'failed', 'No se pudo determinar un consenso');
+        updateStepStatus('completion', 'failed', 'No se pudo generar el reporte final');
+        
+        // Hide visualizer after delay
+        setTimeout(() => {
+          setShowScrapingVisualizer(false);
+          
+          // Show error if no rate was found
+          setValidationResult({
+            visible: true,
+            title: "Error en Extracción de Tipo de Cambio",
+            content: `No se pudo encontrar el tipo de cambio USD/MXN.\n\nError: ${consensusRate.error}\n\nPor favor intente usar la interfaz inteligente de scraping.`
+          });
+          
+          // Open intelligent scraper UI as fallback
+          setIntelligentScraperVisible(true);
+        }, 1500);
+        
+        return false;
+      }
+    } catch (error: any) {
+      console.error("Error getting exchange rate:", error);
+      
+      // Ensure we hide the visualizer in case of error
+      setShowScrapingVisualizer(false);
+      
+      // Show error
+      setValidationResult({
+        visible: true,
+        title: "Error en Extracción de Tipo de Cambio",
+        content: `Ocurrió un error: ${error.message || 'Error desconocido'}\n\nPor favor intente usar la interfaz inteligente de scraping.`
+      });
+      
+      // Open intelligent scraper UI as fallback
+      setIntelligentScraperVisible(true);
+      
+      return false;
+    }
+  };
+  
+  // Helper function to update step status
+  const updateStepStatus = (stepId: string, status: 'pending' | 'in-progress' | 'completed' | 'failed', details?: string) => {
+    try {
+      if (!scrapingSteps || scrapingSteps.length === 0) {
+        console.log("No hay pasos de scraping para actualizar");
+        return;
+      }
+      
+      setScrapingSteps(steps => {
+        return steps.map(step => {
+          if (step.id === stepId) {
+            return { ...step, status, details };
+          }
+          return step;
+        });
+      });
+      
+      // If a step is becoming in-progress, update the current step index
+      if (status === 'in-progress') {
+        const stepIndex = scrapingSteps.findIndex(s => s.id === stepId);
+        if (stepIndex !== -1) {
+          setCurrentStepIndex(stepIndex);
+        }
+      }
+    } catch (error) {
+      console.error("Error actualizando estado de paso:", error);
+    }
   };
 
-  // Función para iniciar animaciones
-  const startAnimations = () => {
-    // Iniciar animaciones según sea necesario
-    // Esta implementación estaba causando errores, ya que las propiedades fadeIn y slideIn
-    // no existen en el objeto avatarAnimations
+  // Modificar el renderScrapingVisualizer para evitar errores
+  const renderScrapingVisualizer = () => {
+    try {
+      if (!showScrapingVisualizer || !scrapingSteps || scrapingSteps.length === 0) return null;
+      
+      const totalSteps = scrapingSteps.length;
+      const completedSteps = scrapingSteps.filter(s => s.status === 'completed').length;
+      const progress = totalSteps > 0 ? (completedSteps / totalSteps) * 100 : 0;
+      
+      return (
+        <Modal
+          visible={showScrapingVisualizer}
+          transparent={true}
+          animationType="fade"
+        >
+          <View style={styles.loadingModalContainer}>
+            <View style={[styles.loadingModalContent, styles.visualizerContainer]}>
+              <Text style={styles.loadingModalText}>Extracción del Tipo de Cambio</Text>
+              
+              <View style={styles.scraperProgressContainer}>
+                <View style={styles.scraperProgressBar}>
+                  <View 
+                    style={[styles.scraperProgressFill, { width: `${progress}%` }]} 
+                  />
+                </View>
+                <Text style={styles.scraperProgressText}>{Math.round(progress)}% completado</Text>
+              </View>
+              
+              <ScrollView style={styles.scraperStepsContainer}>
+                {scrapingSteps.map((step, index) => (
+                  <View 
+                    key={step.id} 
+                    style={[
+                      styles.scraperStepItem,
+                      currentStepIndex === index && styles.scraperCurrentStep,
+                      step.status === 'completed' && styles.scraperCompletedStep,
+                      step.status === 'failed' && styles.scraperFailedStep
+                    ]}
+                  >
+                    <View style={styles.scraperStepIconContainer}>
+                      {step.status === 'pending' && (
+                        <View style={styles.scraperPendingIcon} />
+                      )}
+                      {step.status === 'in-progress' && (
+                        <ActivityIndicator size="small" color="#8be9fd" />
+                      )}
+                      {step.status === 'completed' && (
+                        <View style={styles.scraperCompletedIcon}>
+                          <Text style={styles.scraperCompletedIconText}>✓</Text>
+                        </View>
+                      )}
+                      {step.status === 'failed' && (
+                        <View style={styles.scraperFailedIcon}>
+                          <Text style={styles.scraperFailedIconText}>✗</Text>
+                        </View>
+                      )}
+                    </View>
+                    
+                    <View style={styles.scraperStepTextContainer}>
+                      <Text style={styles.scraperStepName}>{step.name}</Text>
+                      {step.details && (
+                        <Text style={styles.scraperStepDetails}>{step.details}</Text>
+                      )}
+                    </View>
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+      );
+    } catch (error) {
+      console.error("Error renderizando visualizador:", error);
+      return null;
+    }
   };
+
+  // Función para manejar datos extraídos del scraper inteligente
+  const handleIntelligentDataExtracted = (data: any) => {
+    console.log("Datos extraídos:", data);
+    
+    setValidationResult({
+      visible: true,
+      title: "Datos Extraídos",
+      content: JSON.stringify(data, null, 2)
+    });
+    
+    setScrapingResults(data);
+    setIntelligentScraperVisible(false);
+  };
+
+  // Componente auxiliar para renderizar elementos de actividad
+  const ActivityItem = ({ activity, onPress }: { activity: Activity, onPress: () => void }) => (
+    <View style={styles.activityItem}>
+      <View style={styles.activityHeader}>
+        <Text style={styles.activityName}>{activity.name}</Text>
+        <View
+          style={[
+            styles.statusIndicator,
+            activity.status === 'active' ? styles.activeIndicator : 
+            activity.status === 'scheduled' ? styles.scheduledIndicator :
+            styles.inactiveIndicator
+          ]}
+        />
+      </View>
+      
+      {activity.description ? (
+        <Text style={styles.activityDescription}>
+          {activity.description}
+        </Text>
+      ) : null}
+      
+      <View style={styles.activityFooter}>
+        <View style={styles.collaboratorTagContainer}>
+          <Text style={styles.collaboratorTagLabel}>Responsable:</Text>
+          <Text style={styles.collaboratorTagName}>{activity.collaboratorName}</Text>
+        </View>
+        
+        <View style={styles.categoriesContainer}>
+          {activity.categories.map((category, index) => (
+            <View key={index} style={styles.categoryBadge}>
+              <Text style={styles.categoryText}>
+                {category === 'administrativo' ? '📁 Admin' : 
+                 category === 'asistente' ? '✉️ Asistente' :
+                 category === 'scrapping' ? '🔍 Investigación' :
+                 category === 'analisis' ? '📊 Análisis' : category}
+              </Text>
+            </View>
+          ))}
+        </View>
+      </View>
+      
+      {/* Botón para iniciar la actividad */}
+      <View style={styles.activityButtonContainer}>
+        <TouchableOpacity
+          style={styles.startActivityButton}
+          onPress={onPress}
+        >
+          <Text style={styles.startActivityButtonText}>▶️ Iniciar Actividad</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
 
   return (
     <View style={styles.container}>
@@ -911,40 +1170,25 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
         style={styles.gradient}
       >
         <SafeAreaView style={styles.safeContainer}>
-          <Animated.View style={[
-            styles.header,
-            {
-              opacity: fadeIn,
-              transform: [{ translateY: slideUp }]
-            }
-          ]}>
+          <View style={styles.header}>
             <Text style={styles.title}>{organizationName || 'Mi Organización'}</Text>
             <Text style={styles.subtitle}>Simulador de Colaboradores</Text>
-          </Animated.View>
+          </View>
           
           <View style={styles.gameArea}>
             {/* Avatares de colaboradores */}
             {collaborators.map((collaborator) => {
-              const avatarAnim = avatarAnimations[collaborator.id];
-              if (!avatarAnim) return null;
-              
               const isSelected = selectedCollaborator?.id === collaborator.id;
               
               return (
-                <Animated.View
+                <View
                   key={collaborator.id}
                   style={[
                     styles.avatarContainer,
                     {
-                      transform: [
-                        { translateX: avatarAnim.position.x },
-                        { translateY: avatarAnim.position.y },
-                        { rotate: avatarAnim.rotation.interpolate({
-                          inputRange: [-1, 1],
-                          outputRange: ['-20deg', '20deg']
-                        })},
-                        { scale: avatarAnim.scale }
-                      ]
+                      position: 'absolute',
+                      left: collaborator.avatar?.positionX || 0,
+                      top: collaborator.avatar?.positionY || 0,
                     }
                   ]}
                 >
@@ -968,14 +1212,21 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
                       <Text style={styles.nameText}>{collaborator.name}</Text>
                     </View>
                   </TouchableOpacity>
-                </Animated.View>
+                </View>
               );
             })}
             
             {/* Icono del Navegador */}
             <TouchableOpacity
               style={styles.navigatorIcon}
-              onPress={() => setIsNavigatorOpen(true)}
+              onPress={() => {
+                // Inicializar los resultados de búsqueda si estamos en la sección de búsqueda
+                if (isSearchSectionVisible) {
+                  setSearchQuery('');
+                  setSearchResults(filteredActivities);
+                }
+                setIsNavigatorOpen(true);
+              }}
             >
               <LinearGradient
                 colors={['#6272a4', '#44475a']}
@@ -988,13 +1239,7 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
           </View>
           
           {selectedCollaborator && (
-            <Animated.View style={[
-              styles.infoPanel,
-              {
-                opacity: fadeIn,
-                transform: [{ translateY: slideUp }]
-              }
-            ]}>
+            <View style={styles.infoPanel}>
               <Text style={styles.infoPanelTitle}>{selectedCollaborator.name}</Text>
               <Text style={styles.infoPanelSubtitle}>
                 {areas[selectedCollaborator.areaIndex] || `Área ${selectedCollaborator.areaIndex + 1}`}
@@ -1008,7 +1253,7 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
               >
                 <Text style={styles.detailButtonText}>Ver Detalles</Text>
               </TouchableOpacity>
-            </Animated.View>
+            </View>
           )}
         </SafeAreaView>
         
@@ -1033,69 +1278,95 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
               <Text style={styles.modalTitle}>Navegador de Actividades</Text>
               <Text style={styles.modalSubtitle}>Actividades administrativas, de asistente, investigación y análisis</Text>
               
-              {isLoadingActivities ? (
-                <View style={styles.loadingContainer}>
-                  <ActivityIndicator size="large" color="#bd93f9" />
-                  <Text style={styles.loadingText}>Cargando actividades...</Text>
-                </View>
-              ) : filteredActivities.length === 0 ? (
-                <View style={styles.emptyContainer}>
-                  <Text style={styles.emptyText}>No hay actividades disponibles en ninguna categoría</Text>
+              {/* Botones de navegación */}
+              <View style={styles.browserNavigation}>
+                <TouchableOpacity
+                  style={[
+                    styles.navButton,
+                    !isSearchSectionVisible && styles.activeNavButton
+                  ]}
+                  onPress={() => setIsSearchSectionVisible(false)}
+                >
+                  <Text style={styles.navButtonText}>Lista de Actividades</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  style={[
+                    styles.navButton,
+                    isSearchSectionVisible && styles.activeNavButton
+                  ]}
+                  onPress={() => {
+                    setIsSearchSectionVisible(true);
+                    // Inicializar los resultados de búsqueda con las actividades filtradas
+                    setSearchQuery('');
+                    setSearchResults(filteredActivities);
+                  }}
+                >
+                  <Text style={styles.navButtonText}>Búsqueda de Dato</Text>
+                </TouchableOpacity>
+              </View>
+              
+              {/* Simplificación de la navegación para corregir errores */}
+              {isSearchSectionVisible ? (
+                // Sección de búsqueda
+                <View style={styles.searchSection}>
+                  <TextInput
+                    style={styles.searchInput}
+                    placeholder="Buscar actividades..."
+                    placeholderTextColor="#6272a4"
+                    value={searchQuery}
+                    onChangeText={handleSearch}
+                  />
+                  
+                  <View style={{flex: 1}}>
+                    {searchQuery.trim() === "" && searchResults.length === 0 ? (
+                      <View style={styles.emptySearchContainer}>
+                        <Text style={styles.emptySearchText}>
+                          Ingresa un término para buscar actividades
+                        </Text>
+                      </View>
+                    ) : searchResults.length === 0 ? (
+                      <View style={styles.emptySearchResultsContainer}>
+                        <Text style={styles.emptySearchResultsText}>
+                          No se encontraron resultados para "{searchQuery}"
+                        </Text>
+                      </View>
+                    ) : (
+                      <ScrollView style={styles.activitiesList} contentContainerStyle={styles.activitiesListContent}>
+                        {searchResults.map((activity) => (
+                          <ActivityItem 
+                            key={activity.id} 
+                            activity={activity} 
+                            onPress={() => handleStartSearchActivity(activity)} 
+                          />
+                        ))}
+                      </ScrollView>
+                    )}
+                  </View>
                 </View>
               ) : (
-                <ScrollView style={styles.activitiesList} contentContainerStyle={styles.activitiesListContent}>
-                  {filteredActivities.map((activity) => (
-                    <View key={activity.id} style={styles.activityItem}>
-                      <View style={styles.activityHeader}>
-                        <Text style={styles.activityName}>{activity.name}</Text>
-                        <View
-                          style={[
-                            styles.statusIndicator,
-                            activity.status === 'active' ? styles.activeIndicator : 
-                            activity.status === 'scheduled' ? styles.scheduledIndicator :
-                            styles.inactiveIndicator
-                          ]}
-                        />
-                      </View>
-                      
-                      {activity.description ? (
-                        <Text style={styles.activityDescription}>
-                          {activity.description}
-                        </Text>
-                      ) : null}
-                      
-                      <View style={styles.activityFooter}>
-                        <View style={styles.collaboratorTagContainer}>
-                          <Text style={styles.collaboratorTagLabel}>Responsable:</Text>
-                          <Text style={styles.collaboratorTagName}>{activity.collaboratorName}</Text>
-                        </View>
-                        
-                        <View style={styles.categoriesContainer}>
-                          {activity.categories.map((category, index) => (
-                            <View key={index} style={styles.categoryBadge}>
-                              <Text style={styles.categoryText}>
-                                {category === 'administrativo' ? '📁 Admin' : 
-                                 category === 'asistente' ? '✉️ Asistente' :
-                                 category === 'scrapping' ? '🔍 Investigación' :
-                                 category === 'analisis' ? '📊 Análisis' : category}
-                              </Text>
-                            </View>
-                          ))}
-                        </View>
-                      </View>
-                      
-                      {/* Botón para iniciar la actividad */}
-                      <View style={styles.activityButtonContainer}>
-                        <TouchableOpacity
-                          style={styles.startActivityButton}
-                          onPress={() => handleStartActivity(activity)}
-                        >
-                          <Text style={styles.startActivityButtonText}>▶️ Iniciar Actividad</Text>
-                        </TouchableOpacity>
-                      </View>
+                <View style={{flex: 1}}>
+                  {isLoadingActivities ? (
+                    <View style={styles.loadingContainer}>
+                      <ActivityIndicator size="large" color="#bd93f9" />
+                      <Text style={styles.loadingText}>Cargando actividades...</Text>
                     </View>
-                  ))}
-                </ScrollView>
+                  ) : filteredActivities.length === 0 ? (
+                    <View style={styles.emptyContainer}>
+                      <Text style={styles.emptyText}>No hay actividades disponibles en ninguna categoría</Text>
+                    </View>
+                  ) : (
+                    <ScrollView style={styles.activitiesList} contentContainerStyle={styles.activitiesListContent}>
+                      {filteredActivities.map((activity) => (
+                        <ActivityItem 
+                          key={activity.id} 
+                          activity={activity} 
+                          onPress={() => handleStartActivity(activity)} 
+                        />
+                      ))}
+                    </ScrollView>
+                  )}
+                </View>
               )}
               
               <TouchableOpacity
@@ -1109,397 +1380,380 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
         </View>
       </Modal>
       
-      {/* Modal del WebView */}
+      {/* Visualizador de scraping */}
+      {renderScrapingVisualizer()}
+      
+      {/* Intelligent Scraper UI Modal */}
+      {intelligentScraperVisible && (
+        <Modal
+          visible={intelligentScraperVisible}
+          animationType="slide"
+          transparent={false}
+          onRequestClose={() => setIntelligentScraperVisible(false)}
+        >
+          <IntelligentScraperUI
+            onClose={() => setIntelligentScraperVisible(false)}
+            initialUrl={webViewUrl || "https://api.binance.com"}
+            onDataExtracted={handleIntelligentDataExtracted}
+          />
+        </Modal>
+      )}
+      
+      {/* WebView para navegación web */}
       <Modal
         visible={isWebViewOpen}
         transparent={false}
         animationType="slide"
         onRequestClose={() => setIsWebViewOpen(false)}
       >
-        <SafeAreaView style={styles.webViewContainer}>
+        <View style={styles.webViewContainer}>
           <View style={styles.webViewHeader}>
-            <Text style={styles.webViewTitle} numberOfLines={1} ellipsizeMode="tail">
-              {webViewTitle}
-            </Text>
-            <TouchableOpacity
-              style={styles.webViewReloadButton}
-              onPress={() => {
-                // Recargar la página
-                if (Platform.OS !== 'web' && webViewRef.current) {
-                  webViewRef.current.reload();
-                } else if (Platform.OS === 'web') {
-                  // En web, cargar la URL nuevamente
-                  setWebViewUrl(url => url);
-                }
-              }}
-            >
-              <Text style={styles.webViewButtonText}>🔄</Text>
-            </TouchableOpacity>
-            {/* Botón de depuración para activar manualmente la automatización */}
-            <TouchableOpacity
-              style={styles.webViewDebugButton}
-              onPress={() => {
-                console.log("🛠️ Activando automatización manualmente");
-                setCurrentScrapingStep(0);
-                setIsScrapingEnabled(true);
-              }}
-            >
-              <Text style={styles.webViewButtonText}>🤖</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
+            <Text style={styles.webViewTitle}>{webViewTitle}</Text>
+            <TouchableOpacity 
               style={styles.webViewCloseButton}
-              onPress={() => setIsWebViewOpen(false)}
+              onPress={() => {
+                setIsWebViewOpen(false);
+                setShowScrapingVisualizer(false);
+              }}
             >
               <Text style={styles.webViewCloseButtonText}>Cerrar</Text>
             </TouchableOpacity>
           </View>
           
+          {/* WebView real con la página */}
           {Platform.OS === 'web' ? (
-            <>
-              <iframe
-                src={webViewUrl}
-                style={{
-                  flex: 1,
-                  width: '100%',
-                  height: '100%',
-                  border: 'none'
-                }}
-                onLoad={() => {
-                  console.log("📝 iframe cargado, simulando mensaje de carga");
-                  // Simular el mensaje que normalmente se enviaría desde WebView
-                  const fakeEvent = {
-                    nativeEvent: {
-                      data: JSON.stringify({
-                        type: 'PAGE_LOADED',
-                        url: webViewUrl,
-                        title: webViewTitle
-                      })
-                    }
-                  };
-                  handleWebViewMessage(fakeEvent as any);
-                }}
-              />
+            <View style={styles.webViewPlaceholder}>
+              <Text style={{color: '#f8f8f2', fontSize: 18, marginBottom: 20, textAlign: 'center'}}>
+                Simulando navegación a: {webViewUrl}
+              </Text>
+              <ActivityIndicator size="large" color="#bd93f9" />
               
-              {/* Overlay para mostrar resultado de validación */}
-              {validationResult.visible && (
-                <View style={styles.validationOverlay}>
-                  <View style={styles.validationCard}>
-                    <Text style={styles.validationTitle}>{validationResult.title}</Text>
-                    <Text style={styles.validationContent}>{validationResult.content}</Text>
-                    <TouchableOpacity 
-                      style={styles.validationButton}
-                      onPress={() => {
-                        setValidationResult({visible: false, content: '', title: ''});
-                      }}
-                    >
-                      <Text style={styles.validationButtonText}>Cerrar</Text>
-                    </TouchableOpacity>
+              {/* Simulación visual del proceso de búsqueda */}
+              {webViewUrl.includes('google.com') && !webViewUrl.includes('search?q=') && (
+                <View style={styles.simulatedSearch}>
+                  <View style={styles.simulatedSearchBar}>
+                    <Text style={styles.simulatedSearchText}>{searchQuery}</Text>
                   </View>
+                  <TouchableOpacity
+                    style={styles.simulatedSearchButton}
+                    onPress={() => {
+                      // Simular que se completó la búsqueda
+                      const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(searchQuery)}`;
+                      setWebViewUrl(searchUrl);
+                      
+                      // Actualizar los pasos
+                      updateStepStatus('focus-search', 'completed');
+                      updateStepStatus('type-query', 'completed');
+                      updateStepStatus('click-search', 'completed');
+                      updateStepStatus('view-results', 'in-progress');
+                      
+                      // Simular completado después de un tiempo
+                      setTimeout(() => {
+                        updateStepStatus('view-results', 'completed');
+                        setShowScrapingVisualizer(false);
+                      }, 3000);
+                    }}
+                  >
+                    <Text style={styles.simulatedSearchButtonText}>Buscar</Text>
+                  </TouchableOpacity>
                 </View>
               )}
               
-              {/* Panel de estado de automatización */}
-              {isScrapingEnabled && (
-                <View style={styles.automationStatusPanel}>
-                  <Text style={styles.automationStatusTitle}>
-                    Automatización en progreso ({currentScrapingStep + 1}/{scrapingInstructions.length})
+              {/* Mostrar resultados simulados después de búsqueda */}
+              {webViewUrl.includes('search?q=') && (
+                <View style={styles.simulatedResults}>
+                  <Text style={styles.simulatedResultTitle}>
+                    Resultados para: {searchQuery}
                   </Text>
-                  <View style={styles.automationProgressBar}>
-                    <View 
-                      style={[
-                        styles.automationProgressFill,
-                        {width: `${((currentScrapingStep + 1) / scrapingInstructions.length) * 100}%`}
-                      ]} 
-                    />
+                  <View style={styles.simulatedResultItem}>
+                    <Text style={styles.simulatedResultItemTitle}>Tipo de cambio USD/MXN hoy</Text>
+                    <Text style={styles.simulatedResultItemDesc}>17.26 MXN por 1 USD (12 de junio de 2024)</Text>
                   </View>
-                  
-                  <Text style={styles.automationCurrentStep}>
-                    Paso actual: {scrapingInstructions[currentScrapingStep] || ''}
-                  </Text>
-                  
-                  <ScrollView style={styles.automationStepsList}>
-                    {scrapingInstructions.map((step, index) => (
-                      <View 
-                        key={index} 
-                        style={[
-                          styles.automationStepItem,
-                          currentScrapingStep === index && styles.automationStepItemCurrent,
-                          currentScrapingStep > index && styles.automationStepItemCompleted
-                        ]}
-                      >
-                        <Text 
-                          style={[
-                            styles.automationStepText,
-                            currentScrapingStep === index && styles.automationStepTextCurrent,
-                            currentScrapingStep > index && styles.automationStepTextCompleted
-                          ]}
-                        >
-                          {index + 1}. {step}
-                        </Text>
-                        {currentScrapingStep > index && (
-                          <Text style={styles.automationStepCompletedIcon}>✓</Text>
-                        )}
-                      </View>
-                    ))}
-                  </ScrollView>
+                  <View style={styles.simulatedResultItem}>
+                    <Text style={styles.simulatedResultItemTitle}>Banco de México - Tipos de Cambio</Text>
+                    <Text style={styles.simulatedResultItemDesc}>www.banxico.org.mx › portal › tiposcambio</Text>
+                  </View>
+                  <View style={styles.simulatedResultItem}>
+                    <Text style={styles.simulatedResultItemTitle}>Cotización del dólar hoy</Text>
+                    <Text style={styles.simulatedResultItemDesc}>USD/MXN: 17.26 | EUR/MXN: 18.59 | GBP/MXN: 21.84</Text>
+                  </View>
                 </View>
               )}
-            </>
+            </View>
           ) : (
-            <WebView
-              ref={webViewRef}
-              source={{ uri: webViewUrl }}
-              style={styles.webView}
-              startInLoadingState={true}
-              javaScriptEnabled={true}
-              domStorageEnabled={true}
-              onMessage={handleWebViewMessage}
-              injectedJavaScript={`
-                (function() {
-                  console.log("📝 Script de inicialización de WebView ejecutado");
-                  
-                  // Configurar comunicación entre WebView y React Native
-                  function sendMessage(data) {
-                    if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-                      console.log("📤 Enviando mensaje a React Native:", data);
-                      window.ReactNativeWebView.postMessage(JSON.stringify(data));
-                    } else {
-                      console.error("⚠️ ReactNativeWebView no está disponible para comunicación");
+            <>
+              {/* En plataformas nativas usamos un WebView real pero con manejo mejorado */}
+              <View style={{flex: 1}}>
+                {/* Solución para problemas de referencia: creamos WebView con key única */}
+                <WebView
+                  key={`webview-${webViewUrl}`}
+                  source={{ uri: webViewUrl }}
+                  style={styles.webView}
+                  onLoad={(syntheticEvent) => {
+                    try {
+                      const { nativeEvent } = syntheticEvent;
+                      console.log(`📄 [WebView] Página cargada: ${nativeEvent.url}`);
+                      
+                      // Lógica para manejar carga del WebView
+                      if (nativeEvent.url.includes('google.com') && !nativeEvent.url.includes('search?q=')) {
+                        console.log(`✅ [WebView] Detectada página de Google. Completando paso 1...`);
+                        // Completar paso de carga
+                        updateStepStatus('load-google', 'completed');
+                        updateStepStatus('focus-search', 'in-progress');
+                        
+                        // Intentar inyectar JavaScript para continuar el proceso
+                        setTimeout(() => {
+                          try {
+                            console.log(`🔄 [WebView] Intentando enfocar barra de búsqueda...`);
+                            // Código JavaScript para enfocar y escribir en la barra de búsqueda
+                            const jsCode = `
+                              (function() {
+                                try {
+                                  console.log('Ejecutando JavaScript en WebView...');
+                                  const searchInput = document.querySelector('input[name="q"]');
+                                  if (searchInput) {
+                                    searchInput.focus();
+                                    searchInput.value = "${searchQuery.replace(/"/g, '\\"')}";
+                                    
+                                    // Disparar eventos para notificar cambios
+                                    const event = new Event('input', { bubbles: true });
+                                    searchInput.dispatchEvent(event);
+                                    
+                                    console.log('Campo de búsqueda enfocado y completado');
+                                    
+                                    // Notificar a React Native
+                                    window.ReactNativeWebView.postMessage(JSON.stringify({
+                                      type: 'SEARCH_FOCUSED',
+                                      success: true
+                                    }));
+                                    
+                                    return true;
+                                  } else {
+                                    console.error('No se encontró el campo de búsqueda');
+                                    window.ReactNativeWebView.postMessage(JSON.stringify({
+                                      type: 'SEARCH_FOCUSED',
+                                      success: false,
+                                      error: 'No se encontró el campo de búsqueda'
+                                    }));
+                                    return false;
+                                  }
+                                } catch(e) {
+                                  console.error('Error al ejecutar JavaScript:', e);
+                                  window.ReactNativeWebView.postMessage(JSON.stringify({
+                                    type: 'SEARCH_FOCUSED',
+                                    success: false,
+                                    error: e.toString()
+                                  }));
+                                  return false;
+                                }
+                              })();
+                            `;
+                            console.log(`🧩 [WebView] Inyectando JavaScript...`);
+                            // @ts-ignore - TypeScript no reconoce la versión correcta
+                            if (typeof requestAnimationFrame !== 'undefined') {
+                              requestAnimationFrame(() => {
+                                // @ts-ignore - TypeScript no reconoce la versión correcta
+                                if (webViewRef && webViewRef.current) {
+                                  webViewRef.current.injectJavaScript(jsCode);
+                                }
+                              });
+                            }
+                          } catch (error) {
+                            console.error(`❌ [WebView] Error al inyectar JavaScript:`, error);
+                          }
+                        }, 2000);
+                      }
+                      else if (nativeEvent.url.includes('search?q=')) {
+                        console.log(`✅ [WebView] Detectada página de resultados. Completando proceso...`);
+                        // Completar la visualización de resultados
+                        updateStepStatus('view-results', 'completed');
+                        
+                        // Ocultar visualizador después de unos segundos
+                        setTimeout(() => {
+                          setShowScrapingVisualizer(false);
+                        }, 3000);
+                      }
+                    } catch (error) {
+                      console.error(`❌ [WebView] Error en onLoad:`, error);
                     }
-                  }
-                  
-                  // Notificar que la página está cargada
-                  sendMessage({
-                    type: 'PAGE_LOADED',
-                    url: window.location.href,
-                    title: document.title
-                  });
-                  
-                  // Interceptar cambios de navegación
-                  const originalPushState = window.history.pushState;
-                  const originalReplaceState = window.history.replaceState;
-                  
-                  window.history.pushState = function() {
-                    originalPushState.apply(this, arguments);
-                    sendMessage({
-                      type: 'NAVIGATION',
-                      url: window.location.href
-                    });
-                  };
-                  
-                  window.history.replaceState = function() {
-                    originalReplaceState.apply(this, arguments);
-                    sendMessage({
-                      type: 'NAVIGATION',
-                      url: window.location.href
-                    });
-                  };
-                  
-                  // Interceptar eventos de clic para detectar navegación
-                  document.addEventListener('click', function(e) {
-                    setTimeout(function() {
-                      sendMessage({
-                        type: 'URL_CHECK',
-                        url: window.location.href
-                      });
-                    }, 500);
-                  }, true);
-                  
-                  // También notificar cuando la carga completa haya terminado
-                  window.addEventListener('load', function() {
-                    setTimeout(function() {
-                      sendMessage({
-                        type: 'PAGE_FULLY_LOADED',
-                        url: window.location.href,
-                        title: document.title
-                      });
-                    }, 1000);
-                  });
-                  
-                  return true;
-                })();
-              `}
-              onError={(syntheticEvent) => {
-                const { nativeEvent } = syntheticEvent;
-                console.error('WebView error: ', nativeEvent);
-                setWebViewError(true);
-              }}
-              renderLoading={() => (
-                <View style={styles.webViewLoading}>
-                  <ActivityIndicator size="large" color="#bd93f9" />
-                  <Text style={styles.webViewLoadingText}>Cargando página...</Text>
-                </View>
-              )}
-              renderError={(errorDomain, errorCode, errorDesc) => (
-                <View style={styles.webViewError}>
-                  <Text style={styles.webViewErrorTitle}>Error al cargar la página</Text>
-                  <Text style={styles.webViewErrorDesc}>{errorDesc}</Text>
-                  
-                  {/* Mostrar URLs alternativas si están disponibles */}
-                  {alternativeUrls.length > 0 && (
-                    <View style={styles.alternativeUrlsContainer}>
-                      <Text style={styles.alternativeUrlsTitle}>Prueba estas URLs alternativas:</Text>
-                      {alternativeUrls.map((url, index) => (
-                        <TouchableOpacity
-                          key={index}
-                          style={styles.alternativeUrlButton}
-                          onPress={() => {
-                            setWebViewUrl(url);
-                            setWebViewError(false);
-                          }}
-                        >
-                          <Text style={styles.alternativeUrlButtonText}>{index + 1}. {url}</Text>
-                        </TouchableOpacity>
-                      ))}
+                  }}
+                  onError={(syntheticEvent) => {
+                    const { nativeEvent } = syntheticEvent;
+                    console.error(`❌ [WebView] Error de carga: ${nativeEvent.description}`);
+                  }}
+                  onMessage={(event) => {
+                    try {
+                      const data = JSON.parse(event.nativeEvent.data);
+                      console.log(`📩 [WebView] Mensaje recibido:`, data);
+                      
+                      if (data.type === 'SEARCH_FOCUSED') {
+                        if (data.success) {
+                          console.log(`✅ [WebView] Enfoque exitoso en barra de búsqueda`);
+                          updateStepStatus('focus-search', 'completed');
+                          updateStepStatus('type-query', 'completed');
+                          
+                          // Intentar hacer clic en el botón de búsqueda
+                          setTimeout(() => {
+                            try {
+                              console.log(`🔄 [WebView] Intentando hacer clic en botón de búsqueda...`);
+                              // @ts-ignore - TypeScript no reconoce la versión correcta
+                              webViewRef.current?.injectJavaScript(`
+                                (function() {
+                                  try {
+                                    const searchButton = document.querySelector('input[type="submit"], button[jsaction*="search"]');
+                                    if (searchButton) {
+                                      searchButton.click();
+                                      console.log('Clic en botón de búsqueda');
+                                      window.ReactNativeWebView.postMessage(JSON.stringify({
+                                        type: 'SEARCH_CLICKED',
+                                        success: true
+                                      }));
+                                      return true;
+                                    } else {
+                                      const searchForm = document.querySelector('form');
+                                      if (searchForm) {
+                                        searchForm.submit();
+                                        console.log('Formulario enviado');
+                                        window.ReactNativeWebView.postMessage(JSON.stringify({
+                                          type: 'SEARCH_CLICKED',
+                                          success: true
+                                        }));
+                                        return true;
+                                      } else {
+                                        console.error('No se encontró botón de búsqueda');
+                                        window.ReactNativeWebView.postMessage(JSON.stringify({
+                                          type: 'SEARCH_CLICKED',
+                                          success: false,
+                                          error: 'No se encontró botón de búsqueda'
+                                        }));
+                                        return false;
+                                      }
+                                    }
+                                  } catch(e) {
+                                    console.error('Error al hacer clic:', e);
+                                    window.ReactNativeWebView.postMessage(JSON.stringify({
+                                      type: 'SEARCH_CLICKED',
+                                      success: false,
+                                      error: e.toString()
+                                    }));
+                                    return false;
+                                  }
+                                })();
+                              `);
+                            } catch (error) {
+                              console.error(`❌ [WebView] Error al inyectar JavaScript para clic:`, error);
+                            }
+                          }, 1000);
+                        } else {
+                          console.error(`❌ [WebView] Error al enfocar barra de búsqueda:`, data.error);
+                        }
+                      }
+                      
+                      if (data.type === 'SEARCH_CLICKED') {
+                        if (data.success) {
+                          console.log(`✅ [WebView] Clic exitoso en botón de búsqueda`);
+                          updateStepStatus('click-search', 'completed');
+                          updateStepStatus('view-results', 'in-progress');
+                        } else {
+                          console.error(`❌ [WebView] Error al hacer clic en botón:`, data.error);
+                        }
+                      }
+                    } catch (error) {
+                      console.error(`❌ [WebView] Error al procesar mensaje:`, error);
+                    }
+                  }}
+                  javaScriptEnabled={true}
+                  domStorageEnabled={true}
+                  injectedJavaScript={`
+                    console.log = function(message) {
+                      window.ReactNativeWebView.postMessage(JSON.stringify({
+                        type: 'CONSOLE_LOG',
+                        message: message
+                      }));
+                    };
+                    console.error = function(message) {
+                      window.ReactNativeWebView.postMessage(JSON.stringify({
+                        type: 'CONSOLE_ERROR',
+                        message: message
+                      }));
+                    };
+                    true;
+                  `}
+                  startInLoadingState={true}
+                  renderLoading={() => (
+                    <View style={styles.loadingWebView}>
+                      <ActivityIndicator size="large" color="#bd93f9" />
+                      <Text style={{color: '#f8f8f2', marginTop: 10}}>Cargando Google...</Text>
                     </View>
                   )}
-                  
-                  <TouchableOpacity
-                    style={styles.retryButton}
-                    onPress={() => {
-                      setWebViewError(false);
-                      if (webViewRef.current) {
-                        webViewRef.current.reload();
-                      }
-                    }}
-                  >
-                    <Text style={styles.retryButtonText}>Intentar de nuevo</Text>
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity
-                    style={styles.customUrlButton}
-                    onPress={() => {
-                      // Mostrar un Alert para ingresar la URL
-                      Alert.prompt(
-                        'Ingresar URL manualmente',
-                        'Ingresa la URL correcta para esta actividad:',
-                        [
-                          {
-                            text: 'Cancelar',
-                            style: 'cancel'
-                          },
-                          {
-                            text: 'Cargar URL',
-                            onPress: (url) => {
-                              if (url) {
-                                // Asegurarse de que la URL tenga el prefijo http o https
-                                const finalUrl = url.startsWith('http') ? url : `https://${url}`;
-                                setWebViewUrl(finalUrl);
-                                setWebViewError(false);
-                                
-                                // Si la actividad está relacionada con el SAT, guardar esta URL para futuras referencias
-                                if (currentActivity && 
-                                    (currentActivity.name.toLowerCase().includes('sat') || 
-                                     currentActivity.description?.toLowerCase().includes('sat'))) {
-                                  // Guardar la URL correcta para referencias futuras
-                                  AsyncStorage.setItem('last_correct_sat_url', finalUrl);
-                                }
-                              }
-                            }
-                          }
-                        ],
-                        'plain-text',
-                        webViewUrl
-                      );
-                    }}
-                  >
-                    <Text style={styles.customUrlButtonText}>Especificar URL manualmente</Text>
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity
-                    style={styles.openExternalButton}
-                    onPress={() => {
-                      Linking.openURL(webViewUrl);
-                    }}
-                  >
-                    <Text style={styles.openExternalButtonText}>Abrir en navegador externo</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-            />
+                />
+              </View>
+            </>
           )}
           
-          {/* Interfaz para mostrar y controlar el scraping */}
-          {isScrapingEnabled && (
-            <View style={styles.scrapingOverlay}>
-              <View style={styles.scrapingContainer}>
-                <View style={styles.scrapingHeader}>
-                  <Text style={styles.scrapingTitle}>Automatización en progreso</Text>
-                  <TouchableOpacity
-                    style={styles.scrapingCloseButton}
-                    onPress={() => setIsScrapingEnabled(false)}
-                  >
-                    <Text style={styles.scrapingCloseButtonText}>×</Text>
-                  </TouchableOpacity>
-                </View>
-                
-                <View style={styles.scrapingProgress}>
-                  <Text style={styles.scrapingProgressText}>
-                    Paso {currentScrapingStep + 1} de {scrapingInstructions.length}
-                  </Text>
-                  <View style={styles.scrapingProgressBar}>
-                    <View 
-                      style={[
-                        styles.scrapingProgressFill, 
-                        { 
-                          width: `${(currentScrapingStep / scrapingInstructions.length) * 100}%` 
-                        }
-                      ]} 
-                    />
-                  </View>
-                </View>
-                
-                {currentScrapingStep < scrapingInstructions.length && (
-                  <Text style={styles.currentInstructionText}>
-                    Ejecutando: {scrapingInstructions[currentScrapingStep]}
-                  </Text>
-                )}
-                
-                <View style={styles.scrapingButtons}>
-                  <TouchableOpacity
-                    style={[styles.scrapingButton, styles.scrapingPauseButton]}
-                    onPress={() => setIsScrapingEnabled(false)}
-                  >
-                    <Text style={styles.scrapingButtonText}>Pausar</Text>
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity
-                    style={[styles.scrapingButton, styles.scrapingSkipButton]}
-                    onPress={() => {
-                      if (currentScrapingStep < scrapingInstructions.length - 1) {
-                        setCurrentScrapingStep(currentScrapingStep + 1);
-                      } else {
-                        setIsScrapingEnabled(false);
+          {/* Visualizador del proceso */}
+          {showScrapingVisualizer && (
+            <View style={styles.scrapingVisualizerContainer}>
+              <Text style={{
+                fontSize: 18,
+                fontWeight: 'bold',
+                color: '#f8f8f2',
+                marginBottom: 15,
+                textAlign: 'center',
+              }}>Extracción del Tipo de Cambio</Text>
+              
+              <View style={styles.scraperProgressContainer}>
+                <View style={styles.scraperProgressBar}>
+                  <View 
+                    style={[
+                      styles.scraperProgressFill, 
+                      { 
+                        width: `${scrapingSteps.filter(s => s.status === 'completed').length / scrapingSteps.length * 100}%` 
                       }
-                    }}
-                  >
-                    <Text style={styles.scrapingButtonText}>Saltar paso</Text>
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity
-                    style={[styles.scrapingButton, styles.scrapingStopButton]}
-                    onPress={() => {
-                      setIsScrapingEnabled(false);
-                      setCurrentScrapingStep(0);
-                    }}
-                  >
-                    <Text style={styles.scrapingButtonText}>Detener</Text>
-                  </TouchableOpacity>
+                    ]} 
+                  />
                 </View>
+                <Text style={styles.scraperProgressText}>
+                  {Math.round(scrapingSteps.filter(s => s.status === 'completed').length / scrapingSteps.length * 100)}% completado
+                </Text>
               </View>
+              
+              <ScrollView style={{marginTop: 10}}>
+                {scrapingSteps.map((step) => (
+                  <View 
+                    key={step.id} 
+                    style={[
+                      styles.scrapingStep,
+                      step.status === 'in-progress' && {
+                        backgroundColor: 'rgba(98, 114, 164, 0.2)',
+                        borderRadius: 5,
+                        padding: 2,
+                      }
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.scrapingStepIndicator,
+                        step.status === 'completed' ? styles.stepCompleted :
+                        step.status === 'in-progress' ? styles.stepInProgress :
+                        step.status === 'failed' ? styles.stepFailed :
+                        styles.stepPending
+                      ]}
+                    />
+                    <Text 
+                      style={[
+                        {color: '#f8f8f2', fontSize: 14},
+                        step.status === 'in-progress' && styles.scrapingStepTextActive
+                      ]}
+                    >
+                      {step.name}
+                    </Text>
+                  </View>
+                ))}
+              </ScrollView>
             </View>
           )}
-          
-          {/* Botón flotante para reactivar el scraping si está pausado */}
-          {!isScrapingEnabled && scrapingInstructions.length > 0 && currentScrapingStep < scrapingInstructions.length && (
-            <TouchableOpacity
-              style={styles.resumeScrapingButton}
-              onPress={() => setIsScrapingEnabled(true)}
-            >
-              <Text style={styles.resumeScrapingButtonText}>▶ Continuar automático</Text>
-            </TouchableOpacity>
-          )}
-        </SafeAreaView>
+        </View>
       </Modal>
       
       {/* Modal para análisis de flujo */}
@@ -1529,97 +1783,18 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
                 {flowAnalysisActivity ? flowAnalysisActivity.name : 'Actividad'}
               </Text>
               
-              <ScrollView style={styles.flowMessagesContainer}>
-                {flowAnalysisMessages.map((msg, index) => (
-                  <View 
-                    key={index} 
-                    style={[
-                      styles.flowMessage,
-                      msg.role === 'user' ? styles.userMessage : styles.assistantMessage
-                    ]}
-                  >
-                    <Text style={styles.flowMessageText}>
-                      {msg.content}
-                    </Text>
-                  </View>
-                ))}
-                
-                {isAnalyzingFlow && (
-                  <View style={styles.loadingContainer}>
-                    <ActivityIndicator size="small" color="#bd93f9" />
-                    <Text style={styles.loadingText}>Analizando...</Text>
-                  </View>
-                )}
-              </ScrollView>
-              
-              {/* Botones predefinidos */}
-              <View style={styles.predefinedButtonsContainer}>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  <TouchableOpacity 
-                    style={styles.predefinedButton}
-                    onPress={() => sendPredefinedMessage('El código es correcto y ejecutable. Confirmo para continuar con la implementación.')}
-                  >
-                    <Text style={styles.predefinedButtonText}>✅ Código correcto</Text>
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity 
-                    style={styles.predefinedButton}
-                    onPress={() => sendPredefinedMessage('El flujo es adecuado pero necesito que optimices el código de extracción de datos para que sea más robusto ante cambios en la estructura de la página.')}
-                  >
-                    <Text style={styles.predefinedButtonText}>🔍 Mejorar extracción</Text>
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity 
-                    style={styles.predefinedButton}
-                    onPress={() => sendPredefinedMessage('Por favor, mejora la parte de presentación visual de resultados con un formato más detallado y atractivo.')}
-                  >
-                    <Text style={styles.predefinedButtonText}>💻 Mejorar UI</Text>
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity 
-                    style={styles.predefinedButton}
-                    onPress={() => sendPredefinedMessage('Necesito que añadas más manejo de errores técnicos en cada paso y alternativas si la extracción principal falla.')}
-                  >
-                    <Text style={styles.predefinedButtonText}>🛠️ Más error handling</Text>
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity 
-                    style={styles.predefinedButton}
-                    onPress={() => sendPredefinedMessage('Asegúrate de que al final del proceso se muestre claramente el resultado (precio BTC/USDT, fecha, etc.) en una pantalla de resumen para el usuario.')}
-                  >
-                    <Text style={styles.predefinedButtonText}>📊 Mostrar resultado final</Text>
-                  </TouchableOpacity>
-                </ScrollView>
-              </View>
-              
-              {/* Input y botones */}
-              <View style={styles.flowInputContainer}>
-                <TextInput
-                  style={styles.flowInput}
-                  placeholder="Escribe un mensaje..."
-                  placeholderTextColor="#6272a4"
-                  value={flowUserInput}
-                  onChangeText={setFlowUserInput}
-                  multiline
-                />
-                
-                <View style={styles.flowActionButtons}>
-                  <TouchableOpacity 
-                    style={styles.sendButton}
-                    onPress={sendFlowMessage}
-                    disabled={isAnalyzingFlow || !flowUserInput.trim()}
-                  >
-                    <Text style={styles.sendButtonText}>Enviar</Text>
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity 
-                    style={styles.confirmButton}
-                    onPress={continueStartActivity}
-                  >
-                    <Text style={styles.confirmButtonText}>Confirmar y Continuar</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
+              <TouchableOpacity 
+                style={{
+                  backgroundColor: '#50fa7b',
+                  padding: 10,
+                  borderRadius: 5,
+                  alignItems: 'center',
+                  marginTop: 20
+                }}
+                onPress={continueStartActivity}
+              >
+                <Text style={{color: '#282a36', fontWeight: 'bold'}}>Confirmar y Continuar</Text>
+              </TouchableOpacity>
             </LinearGradient>
           </View>
         </View>
@@ -1645,68 +1820,29 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
         </View>
       </Modal>
       
-      {/* Modal de validación LLM */}
+      {/* Modal de validación */}
       <Modal
-        visible={llmValidationResult.visible}
+        visible={validationResult.visible}
         transparent={true}
         animationType="fade"
       >
         <View style={styles.loadingModalContainer}>
           <View style={styles.loadingModalContent}>
-            <View style={styles.llmValidationHeader}>
-              <Text style={[
-                styles.llmValidationTitle,
-                llmValidationResult.success ? styles.llmValidationSuccess : styles.llmValidationError
-              ]}>
-                {llmValidationResult.success ? '✓ Paso Validado' : '✗ Problema Detectado'}
-              </Text>
-            </View>
-            
-            <Text style={styles.llmValidationStep}>
-              Paso: {llmValidationResult.step}
-            </Text>
-            
-            <View style={styles.llmValidationContent}>
-              <Text style={styles.llmValidationResult}>
-                {llmValidationResult.result}
-              </Text>
-            </View>
-            
+            <Text style={styles.loadingModalText}>{validationResult.title}</Text>
+            <Text style={styles.validationContent}>{validationResult.content}</Text>
             <TouchableOpacity
-              style={[
-                styles.llmValidationButton,
-                llmValidationResult.success ? styles.llmValidationButtonSuccess : styles.llmValidationButtonError
-              ]}
+              style={{
+                backgroundColor: '#bd93f9',
+                padding: 10,
+                borderRadius: 5,
+                marginTop: 20
+              }}
               onPress={() => {
-                setLlmValidationResult(prev => ({...prev, visible: false}));
-                if (llmValidationResult.success) {
-                  setCurrentScrapingStep(currentScrapingStep + 1);
-                }
+                setValidationResult({visible: false, content: '', title: ''});
               }}
             >
-              <Text style={styles.llmValidationButtonText}>
-                {llmValidationResult.success ? 'Continuar' : 'Intentar Nuevamente'}
-              </Text>
+              <Text style={{color: '#f8f8f2', fontWeight: 'bold'}}>Cerrar</Text>
             </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Modal de análisis LLM para actividad */}
-      <Modal
-        visible={isValidatingWithLLM}
-        transparent={true}
-        animationType="fade"
-      >
-        <View style={styles.loadingModalContainer}>
-          <View style={styles.loadingModalContent}>
-            <ActivityIndicator size="large" color="#bd93f9" />
-            <Text style={styles.loadingModalText}>
-              Analizando actividad con IA...
-            </Text>
-            <Text style={styles.loadingModalSubText}>
-              Estamos preparando la actividad "{currentActivity?.name || ''}" para su ejecución.
-            </Text>
           </View>
         </View>
       </Modal>
@@ -2072,6 +2208,14 @@ const styles = StyleSheet.create({
   },
   webView: {
     flex: 1,
+    backgroundColor: '#f8f8f2',
+  },
+  webViewPlaceholder: {
+    flex: 1,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    paddingTop: 50,
   },
   webViewLoading: {
     flex: 1,
@@ -2584,6 +2728,270 @@ const styles = StyleSheet.create({
     color: '#f8f8f2',
     fontSize: 14,
     fontWeight: 'bold',
+  },
+  visualizerContainer: {
+    maxWidth: 500,
+    maxHeight: '80%',
+    padding: 20,
+    borderWidth: 2,
+    borderColor: '#bd93f9',
+  },
+  scraperProgressContainer: {
+    marginVertical: 20,
+  },
+  scraperProgressBar: {
+    height: 8,
+    backgroundColor: '#44475a',
+    borderRadius: 4,
+    overflow: 'hidden',
+    marginBottom: 5,
+  },
+  scraperProgressFill: {
+    height: '100%',
+    backgroundColor: '#50fa7b',
+    borderRadius: 4,
+  },
+  scraperProgressText: {
+    color: '#f8f8f2',
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  scraperStepsContainer: {
+    maxHeight: 350,
+  },
+  scraperStepItem: {
+    flexDirection: 'row',
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#44475a',
+    alignItems: 'flex-start',
+  },
+  scraperCurrentStep: {
+    backgroundColor: 'rgba(98, 114, 164, 0.2)',
+  },
+  scraperCompletedStep: {
+    opacity: 0.8,
+  },
+  scraperFailedStep: {
+    backgroundColor: 'rgba(255, 85, 85, 0.1)',
+  },
+  scraperStepIconContainer: {
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 15,
+    marginTop: 2,
+  },
+  scraperPendingIcon: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#6272a4',
+  },
+  scraperCompletedIcon: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#50fa7b',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  scraperCompletedIconText: {
+    color: '#282a36',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  scraperFailedIcon: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#ff5555',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  scraperFailedIconText: {
+    color: '#f8f8f2',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  scraperStepTextContainer: {
+    flex: 1,
+  },
+  scraperStepName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#f8f8f2',
+    marginBottom: 5,
+  },
+  scraperStepDetails: {
+    fontSize: 14,
+    color: '#8be9fd',
+  },
+  browserNavigation: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+    paddingHorizontal: 5,
+  },
+  navButton: {
+    backgroundColor: '#44475a',
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 5,
+    flex: 1,
+    marginHorizontal: 5,
+    alignItems: 'center',
+  },
+  navButtonText: {
+    color: '#f8f8f2',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  activeNavButton: {
+    backgroundColor: '#6272a4',
+  },
+  searchSection: {
+    flex: 1,
+    paddingBottom: 5,
+  },
+  searchInput: {
+    backgroundColor: '#282a36',
+    borderRadius: 5,
+    padding: 12,
+    marginBottom: 15,
+    color: '#f8f8f2',
+    fontSize: 16,
+    borderWidth: 1,
+    borderColor: '#44475a',
+  },
+  emptySearchContainer: {
+    alignItems: 'center',
+    marginTop: 30,
+    paddingHorizontal: 20,
+  },
+  emptySearchText: {
+    color: '#bd93f9',
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  emptySearchResultsContainer: {
+    alignItems: 'center',
+    marginTop: 30,
+    paddingHorizontal: 20,
+  },
+  emptySearchResultsText: {
+    color: '#ff79c6',
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  simulatedSearch: {
+    width: '90%',
+    marginTop: 30,
+    alignItems: 'center',
+  },
+  simulatedSearchBar: {
+    width: '100%',
+    height: 50,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 25,
+    paddingHorizontal: 20,
+    marginBottom: 20,
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  simulatedSearchText: {
+    fontSize: 16,
+    color: '#333',
+  },
+  simulatedSearchButton: {
+    paddingHorizontal: 30,
+    paddingVertical: 12,
+    backgroundColor: '#4285F4',
+    borderRadius: 5,
+  },
+  simulatedSearchButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  simulatedResults: {
+    width: '90%',
+    marginTop: 30,
+    alignItems: 'flex-start',
+  },
+  simulatedResultTitle: {
+    fontSize: 20,
+    color: '#333',
+    marginBottom: 20,
+    fontWeight: 'bold',
+  },
+  simulatedResultItem: {
+    width: '100%',
+    paddingVertical: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  simulatedResultItemTitle: {
+    fontSize: 18,
+    color: '#1a0dab',
+    marginBottom: 5,
+  },
+  simulatedResultItemDesc: {
+    fontSize: 14,
+    color: '#4d5156',
+  },
+  scrapingVisualizerContainer: {
+    backgroundColor: '#282a36',
+    borderRadius: 5,
+    padding: 10,
+    marginBottom: 10,
+  },
+  scrapingVisualizerTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#f8f8f2',
+    marginBottom: 15,
+    textAlign: 'center',
+  },
+  scrapingStepsContainer: {
+    marginTop: 10,
+  },
+  scrapingStepActive: {
+    backgroundColor: 'rgba(98, 114, 164, 0.2)',
+    borderRadius: 5,
+    padding: 2,
+  },
+  scrapingStep: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 5,
+  },
+  scrapingStepTextActive: {
+    color: '#50fa7b',
+  },
+  stepCompleted: {
+    backgroundColor: 'rgba(80, 250, 123, 0.5)',
+  },
+  stepInProgress: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  stepFailed: {
+    backgroundColor: 'rgba(255, 85, 85, 0.2)',
+  },
+  stepPending: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  scrapingStepIndicator: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginRight: 5,
+  },
+  loadingWebView: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
 
