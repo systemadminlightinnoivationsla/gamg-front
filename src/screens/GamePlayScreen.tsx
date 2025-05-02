@@ -14,7 +14,10 @@ import {
   Alert,
   Platform,
   Linking,
-  TextInput
+  TextInput,
+  Image,
+  FlatList,
+  Keyboard,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -838,7 +841,9 @@ Tu respuesta debe contener ÚNICAMENTE los términos de búsqueda, nada más.`
               // Preparar resultado consolidado
               console.log(`📊 [Resultado] Preparando resultado consolidado...`);
               
-              const currentDate = new Date().toLocaleDateString('es-MX', {
+              // Obtener la fecha actual para mostrar fechas reales en los resultados
+              const currentDate = new Date();
+              const formattedDate = currentDate.toLocaleDateString('es-MX', {
                 year: 'numeric',
                 month: 'long',
                 day: 'numeric'
@@ -854,7 +859,7 @@ Tu respuesta debe contener ÚNICAMENTE los términos de búsqueda, nada más.`
                 // Tipo de cambio USD/MXN
                 dynamicResult = {
                   exchangeRate: '17.26',
-                  date: currentDate,
+                  date: formattedDate,
                   source: 'Google Finance',
                   searchQuery: query
                 };
@@ -862,7 +867,7 @@ Tu respuesta debe contener ÚNICAMENTE los términos de búsqueda, nada más.`
                 // Clima
                 dynamicResult = {
                   exchangeRate: '24°C',
-                  date: currentDate,
+                  date: formattedDate,
                   source: 'Weather Service',
                   searchQuery: query
                 };
@@ -870,7 +875,7 @@ Tu respuesta debe contener ÚNICAMENTE los términos de búsqueda, nada más.`
                 // Precio Bitcoin
                 dynamicResult = {
                   exchangeRate: '68,245.32',
-                  date: currentDate,
+                  date: formattedDate,
                   source: 'CoinMarketCap',
                   searchQuery: query
                 };
@@ -878,7 +883,7 @@ Tu respuesta debe contener ÚNICAMENTE los términos de búsqueda, nada más.`
                 // Precio oro
                 dynamicResult = {
                   exchangeRate: '2,345.67',
-                  date: currentDate,
+                  date: formattedDate,
                   source: 'Gold Price Index',
                   searchQuery: query
                 };
@@ -886,7 +891,7 @@ Tu respuesta debe contener ÚNICAMENTE los términos de búsqueda, nada más.`
                 // Consulta genérica - usar datos genéricos
                 dynamicResult = {
                   exchangeRate: 'Resultado',
-                  date: currentDate,
+                  date: formattedDate,
                   source: 'Google Search',
                   searchQuery: query
                 };
@@ -1252,21 +1257,70 @@ Tu respuesta debe contener ÚNICAMENTE los términos de búsqueda, nada más.`
     console.log('🔍 [Validación] Iniciando validación del resultado...');
     
     try {
-      // Preparar los datos a validar
-      const dataToValidate = {
-        type: 'exchange_rate',
-        rate: consolidatedResult.exchangeRate,
-        from: 'USD',
-        to: 'MXN',
-        date: consolidatedResult.date,
-        source: consolidatedResult.source,
-        searchQuery: consolidatedResult.searchQuery
-      };
+      // Determinar el tipo de consulta basado en palabras clave
+      const normalizedQuery = consolidatedResult.searchQuery.toLowerCase();
+      
+      // Preparar los datos a validar según el tipo de consulta
+      let dataToValidate: any;
+      
+      if (normalizedQuery.includes('usd') && normalizedQuery.includes('mxn')) {
+        // Tipo de cambio USD/MXN
+        dataToValidate = {
+          type: 'exchange_rate',
+          rate: consolidatedResult.exchangeRate,
+          from: 'USD',
+          to: 'MXN',
+          date: consolidatedResult.date,
+          source: consolidatedResult.source,
+          searchQuery: consolidatedResult.searchQuery
+        };
+      } else if (normalizedQuery.includes('clima') || normalizedQuery.includes('temperatura')) {
+        // Clima
+        dataToValidate = {
+          type: 'weather',
+          temperature: consolidatedResult.exchangeRate,
+          location: 'Ciudad de México',
+          date: consolidatedResult.date,
+          source: consolidatedResult.source,
+          searchQuery: consolidatedResult.searchQuery
+        };
+      } else if (normalizedQuery.includes('bitcoin') || normalizedQuery.includes('btc')) {
+        // Precio Bitcoin
+        dataToValidate = {
+          type: 'crypto_price',
+          price: consolidatedResult.exchangeRate,
+          currency: 'BTC',
+          unit: 'USD',
+          date: consolidatedResult.date,
+          source: consolidatedResult.source,
+          searchQuery: consolidatedResult.searchQuery
+        };
+      } else if (normalizedQuery.includes('oro') || normalizedQuery.includes('gold')) {
+        // Precio oro
+        dataToValidate = {
+          type: 'commodity_price',
+          price: consolidatedResult.exchangeRate,
+          commodity: 'gold',
+          unit: 'USD',
+          date: consolidatedResult.date,
+          source: consolidatedResult.source,
+          searchQuery: consolidatedResult.searchQuery
+        };
+      } else {
+        // Consulta genérica
+        dataToValidate = {
+          type: 'generic_search',
+          result: consolidatedResult.exchangeRate,
+          date: consolidatedResult.date,
+          source: consolidatedResult.source,
+          searchQuery: consolidatedResult.searchQuery
+        };
+      }
       
       // Llamar al servicio de validación
       const result = await validateSearchResult(
         currentActivity.name,
-        currentActivity.description,
+        currentActivity.description || currentActivity.name,
         dataToValidate
       );
       
@@ -1281,15 +1335,10 @@ Tu respuesta debe contener ÚNICAMENTE los términos de búsqueda, nada más.`
         success: result.isValid
       });
       
-      // Mostrar estado de validación
-      setValidationResult({
-        visible: true,
-        title: result.isValid ? '✅ Resultado Válido' : '❌ Resultado Inválido',
-        content: result.explanation
-      });
-      
+      // Ya no mostramos un modal separado de validación, solo actualizamos el modal de resultado
       console.log(`✅ [Validación] Resultado: ${result.isValid ? 'VÁLIDO' : 'INVÁLIDO'}`);
       console.log(`📝 [Validación] Explicación: ${result.explanation}`);
+      
     } catch (error) {
       console.error('❌ Error al validar el resultado:', error);
       setLlmValidationResult({
@@ -1299,11 +1348,12 @@ Tu respuesta debe contener ÚNICAMENTE los términos de búsqueda, nada más.`
         success: false
       });
       
-      setValidationResult({
-        visible: true,
-        title: '❌ Error en Validación',
-        content: `Error: ${error instanceof Error ? error.message : String(error)}`
-      });
+      // Mostrar error en un modal de alerta
+      Alert.alert(
+        "Error en Validación",
+        `Ocurrió un error durante la validación: ${error instanceof Error ? error.message : String(error)}`,
+        [{ text: "OK" }]
+      );
     } finally {
       setIsValidatingWithLLM(false);
     }
@@ -2085,19 +2135,32 @@ Tu respuesta debe contener ÚNICAMENTE los términos de búsqueda, nada más.`
           <View style={styles.loadingModalContent}>
             <Text style={styles.loadingModalText}>{validationResult.title}</Text>
             <Text style={styles.validationContent}>{validationResult.content}</Text>
-            <TouchableOpacity
-              style={{
-                backgroundColor: '#bd93f9',
-                padding: 10,
-                borderRadius: 5,
-                marginTop: 20
-              }}
-              onPress={() => {
-                setValidationResult({visible: false, content: '', title: ''});
-              }}
-            >
-              <Text style={{color: '#f8f8f2', fontWeight: 'bold'}}>Cerrar</Text>
-            </TouchableOpacity>
+            
+            <View style={styles.buttonRow}>
+              <TouchableOpacity
+                style={styles.resultButton}
+                onPress={() => {
+                  setValidationResult({visible: false, content: '', title: ''});
+                }}
+              >
+                <Text style={styles.resultButtonText}>Cerrar</Text>
+              </TouchableOpacity>
+              
+              {validationResult.title.includes('Válido') && (
+                <TouchableOpacity
+                  style={[styles.resultButton, styles.validateButton]}
+                  onPress={() => {
+                    // Cerrar todos los modales y volver al estado inicial
+                    setValidationResult({visible: false, content: '', title: ''});
+                    setShowResultModal(false);
+                    setIsWebViewOpen(false);
+                    setIsResultValidated(false);
+                  }}
+                >
+                  <Text style={styles.resultButtonText}>Finalizar Actividad</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
         </View>
       </Modal>
@@ -2114,27 +2177,74 @@ Tu respuesta debe contener ÚNICAMENTE los términos de búsqueda, nada más.`
               <Text style={styles.resultTitle}>
                 {isResultValidated ? 'Resultado Validado' : 'Resultado Consolidado'}
               </Text>
-              <Text style={styles.resultSubtitle}>Búsqueda completada con éxito</Text>
+              <Text style={styles.resultSubtitle}>
+                {isResultValidated 
+                  ? llmValidationResult.success 
+                    ? 'Búsqueda completada con éxito y validada' 
+                    : 'Búsqueda completada pero con observaciones'
+                  : 'Búsqueda completada con éxito'}
+              </Text>
+              {isResultValidated && (
+                <View style={[
+                  styles.validationBadge, 
+                  llmValidationResult.success 
+                    ? styles.validationBadgeSuccess 
+                    : styles.validationBadgeWarning
+                ]}>
+                  <Text style={styles.validationBadgeText}>
+                    {llmValidationResult.success ? '✓ Válido' : '⚠ Revisar'}
+                  </Text>
+                </View>
+              )}
             </View>
             
             <View style={styles.resultCard}>
-              <Text style={styles.resultLabel}>
-                {consolidatedResult.searchQuery.toLowerCase().includes('usd/mxn') ? 'Tipo de Cambio USD/MXN:' : 
-                 consolidatedResult.searchQuery.toLowerCase().includes('clima') ? 'Temperatura:' :
-                 consolidatedResult.searchQuery.toLowerCase().includes('bitcoin') ? 'Precio Bitcoin:' :
-                 consolidatedResult.searchQuery.toLowerCase().includes('oro') ? 'Precio Oro:' :
-                 'Resultado:'}
-              </Text>
-              <Text style={styles.exchangeRateValue}>{consolidatedResult.exchangeRate} 
-                {consolidatedResult.searchQuery.toLowerCase().includes('usd/mxn') ? ' MXN' : 
-                 consolidatedResult.searchQuery.toLowerCase().includes('clima') ? '' :
-                 consolidatedResult.searchQuery.toLowerCase().includes('bitcoin') ? ' USD' :
-                 consolidatedResult.searchQuery.toLowerCase().includes('oro') ? ' USD' :
-                 ''}
-              </Text>
-              {consolidatedResult.searchQuery.toLowerCase().includes('usd/mxn') && (
-                <Text style={styles.resultPerDollar}>por 1 USD</Text>
-              )}
+              {(() => {
+                const normalizedQuery = consolidatedResult.searchQuery.toLowerCase();
+                
+                if (normalizedQuery.includes('usd') && normalizedQuery.includes('mxn')) {
+                  // Formato para tipo de cambio USD/MXN
+                  return (
+                    <>
+                      <Text style={styles.resultLabel}>Tipo de Cambio USD/MXN:</Text>
+                      <Text style={styles.exchangeRateValue}>{consolidatedResult.exchangeRate} MXN</Text>
+                      <Text style={styles.resultPerDollar}>por 1 USD</Text>
+                    </>
+                  );
+                } else if (normalizedQuery.includes('clima') || normalizedQuery.includes('weather')) {
+                  // Formato para clima
+                  return (
+                    <>
+                      <Text style={styles.resultLabel}>Temperatura:</Text>
+                      <Text style={styles.exchangeRateValue}>{consolidatedResult.exchangeRate}</Text>
+                    </>
+                  );
+                } else if (normalizedQuery.includes('bitcoin') || normalizedQuery.includes('btc')) {
+                  // Formato para Bitcoin
+                  return (
+                    <>
+                      <Text style={styles.resultLabel}>Precio Bitcoin:</Text>
+                      <Text style={styles.exchangeRateValue}>{consolidatedResult.exchangeRate} USD</Text>
+                    </>
+                  );
+                } else if (normalizedQuery.includes('oro') || normalizedQuery.includes('gold')) {
+                  // Formato para precio del oro
+                  return (
+                    <>
+                      <Text style={styles.resultLabel}>Precio Oro:</Text>
+                      <Text style={styles.exchangeRateValue}>{consolidatedResult.exchangeRate} USD</Text>
+                    </>
+                  );
+                } else {
+                  // Formato genérico
+                  return (
+                    <>
+                      <Text style={styles.resultLabel}>Resultado:</Text>
+                      <Text style={styles.exchangeRateValue}>{consolidatedResult.exchangeRate}</Text>
+                    </>
+                  );
+                }
+              })()}
             </View>
             
             <View style={styles.resultInfoContainer}>
@@ -2153,6 +2263,23 @@ Tu respuesta debe contener ÚNICAMENTE los términos de búsqueda, nada más.`
               <Text style={styles.resultQueryValue}>{consolidatedResult.searchQuery}</Text>
             </View>
             
+            {/* Mostrar detalles de validación si está validado */}
+            {isResultValidated && (
+              <View style={[
+                styles.validationResultContainer,
+                llmValidationResult.success 
+                  ? styles.validResultContainer 
+                  : styles.invalidResultContainer
+              ]}>
+                <Text style={styles.validationResultTitle}>
+                  {llmValidationResult.success ? '✅ Validación exitosa' : '⚠️ Observaciones de validación'}
+                </Text>
+                <Text style={styles.validationResultExplanation}>
+                  {llmValidationResult.result}
+                </Text>
+              </View>
+            )}
+            
             <View style={styles.buttonRow}>
               <TouchableOpacity
                 style={styles.resultButton}
@@ -2163,16 +2290,20 @@ Tu respuesta debe contener ÚNICAMENTE los términos de búsqueda, nada más.`
                   setIsWebViewOpen(false);
                 }}
               >
-                <Text style={styles.resultButtonText}>Finalizar Actividad</Text>
+                <Text style={styles.resultButtonText}>Cerrar</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
                 style={[styles.resultButton, styles.validateButton, isValidatingWithLLM && styles.disabledButton]}
                 onPress={handleValidateResult}
-                disabled={isValidatingWithLLM}
+                disabled={isValidatingWithLLM || isResultValidated}
               >
                 <Text style={styles.resultButtonText}>
-                  {isValidatingWithLLM ? 'Validando...' : 'Validar Resultado'}
+                  {isValidatingWithLLM 
+                    ? 'Validando...' 
+                    : isResultValidated 
+                      ? '✓ Validado' 
+                      : 'Validar Resultado'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -2773,10 +2904,17 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   validationContent: {
-    fontSize: 16,
     color: '#f8f8f2',
-    marginBottom: 20,
-    textAlign: 'center',
+    fontSize: 16,
+    marginVertical: 15,
+    lineHeight: 24,
+    textAlign: 'left',
+    width: '100%',
+    padding: 10,
+    backgroundColor: 'rgba(40, 42, 54, 0.8)',
+    borderRadius: 5,
+    borderLeftWidth: 3,
+    borderLeftColor: '#bd93f9',
   },
   validationButton: {
     backgroundColor: '#bd93f9',
@@ -3464,6 +3602,23 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#f8f8f2',
     lineHeight: 20,
+  },
+  validationBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 5,
+    marginTop: 5,
+  },
+  validationBadgeSuccess: {
+    backgroundColor: 'rgba(80, 250, 123, 0.2)',
+  },
+  validationBadgeWarning: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  validationBadgeText: {
+    color: '#f8f8f2',
+    fontSize: 14,
+    fontWeight: 'bold',
   },
 });
 
