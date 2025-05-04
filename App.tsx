@@ -3,6 +3,7 @@ import { StyleSheet, View, Alert, Animated, Dimensions } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ActivityProvider } from './src/contexts/ActivityContext';
+import { AgentProvider } from './src/contexts/AgentContext';
 
 import LoginScreen from './src/screens/LoginScreen';
 import RegisterScreen from './src/screens/RegisterScreen';
@@ -10,8 +11,10 @@ import GameMenuScreen from './src/screens/GameMenuScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import GamePlayScreen from './src/screens/GamePlayScreen';
 import CollaboratorDetailScreen from './src/screens/CollaboratorDetailScreen';
+import AgentScreen from './src/screens/AgentScreen';
+import RicaOfficeScreen from './src/screens/RicaOfficeScreen';
 
-type Screen = 'login' | 'register' | 'game-menu' | 'settings' | 'game-play' | 'collaborator-detail';
+type Screen = 'login' | 'register' | 'game-menu' | 'settings' | 'game-play' | 'collaborator-detail' | 'agent' | 'rica-office';
 
 const { width } = Dimensions.get('window');
 
@@ -138,6 +141,10 @@ export default function App() {
     changeScreen('settings');
   };
   
+  const handleAgents = () => {
+    changeScreen('agent');
+  };
+  
   const handleBackToMenu = () => {
     changeScreen('game-menu', 'left');
   };
@@ -152,6 +159,10 @@ export default function App() {
     changeScreen('game-play', 'left');
   };
 
+  const handleOpenRicaOffice = () => {
+    changeScreen('rica-office');
+  };
+
   // Mostrar pantalla de carga mientras se verifica el token
   if (isLoading) {
     return (
@@ -163,65 +174,82 @@ export default function App() {
 
   // Renderizar la pantalla actual con animación
   return (
-    <ActivityProvider>
-      <View style={styles.container}>
-        <Animated.View 
-          style={[
-            styles.screenContainer,
-            {
-              opacity: screenOpacity,
-              transform: [{ translateX: screenTranslateX }]
-            }
-          ]}
-        >
-          {currentScreen === 'login' && (
-            <LoginScreen 
-              onLogin={handleLogin} 
-              onNavigateToRegister={() => changeScreen('register')} 
-            />
-          )}
+    <AgentProvider>
+      <ActivityProvider>
+        <View style={styles.container}>
+          <Animated.View 
+            style={[
+              styles.screenContainer,
+              {
+                opacity: screenOpacity,
+                transform: [{ translateX: screenTranslateX }]
+              }
+            ]}
+          >
+            {currentScreen === 'login' && (
+              <LoginScreen 
+                onLogin={handleLogin} 
+                onNavigateToRegister={() => changeScreen('register')} 
+              />
+            )}
+            
+            {currentScreen === 'register' && (
+              <RegisterScreen 
+                onRegister={handleRegister} 
+                onNavigateToLogin={() => changeScreen('login', 'left')} 
+              />
+            )}
+            
+            {currentScreen === 'game-menu' && (
+              <GameMenuScreen 
+                username={username} 
+                onLogout={handleLogout} 
+                onStartGame={handleStartGame}
+                onSettings={handleSettings}
+                onAgents={handleAgents}
+                onOpenRicaOffice={handleOpenRicaOffice}
+              />
+            )}
+            
+            {currentScreen === 'settings' && (
+              <SettingsScreen
+                onBack={handleBackToMenu}
+              />
+            )}
+            
+            {currentScreen === 'game-play' && (
+              <GamePlayScreen
+                onBack={handleBackToMenu}
+                onSelectCollaborator={handleSelectCollaborator}
+                onOpenRicaOffice={handleOpenRicaOffice}
+              />
+            )}
+            
+            {currentScreen === 'collaborator-detail' && selectedCollaborator && (
+              <CollaboratorDetailScreen
+                collaborator={selectedCollaborator}
+                areaName={selectedAreaName}
+                onBack={handleBackToGamePlay}
+              />
+            )}
+            
+            {currentScreen === 'agent' && (
+              <AgentScreen
+                onBack={handleBackToMenu}
+              />
+            )}
+            
+            {currentScreen === 'rica-office' && (
+              <RicaOfficeScreen
+                onBack={handleBackToMenu}
+              />
+            )}
+          </Animated.View>
           
-          {currentScreen === 'register' && (
-            <RegisterScreen 
-              onRegister={handleRegister} 
-              onNavigateToLogin={() => changeScreen('login', 'left')} 
-            />
-          )}
-          
-          {currentScreen === 'game-menu' && (
-            <GameMenuScreen 
-              username={username} 
-              onLogout={handleLogout} 
-              onStartGame={handleStartGame}
-              onSettings={handleSettings}
-            />
-          )}
-          
-          {currentScreen === 'settings' && (
-            <SettingsScreen
-              onBack={handleBackToMenu}
-            />
-          )}
-          
-          {currentScreen === 'game-play' && (
-            <GamePlayScreen
-              onBack={handleBackToMenu}
-              onSelectCollaborator={handleSelectCollaborator}
-            />
-          )}
-          
-          {currentScreen === 'collaborator-detail' && selectedCollaborator && (
-            <CollaboratorDetailScreen
-              collaborator={selectedCollaborator}
-              areaName={selectedAreaName}
-              onBack={handleBackToGamePlay}
-            />
-          )}
-        </Animated.View>
-        
-        <StatusBar style="light" />
-      </View>
-    </ActivityProvider>
+          <StatusBar style="light" />
+        </View>
+      </ActivityProvider>
+    </AgentProvider>
   );
 }
 

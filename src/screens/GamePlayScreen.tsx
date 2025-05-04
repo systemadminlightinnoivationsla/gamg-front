@@ -27,6 +27,7 @@ import { WebViewMessageEvent } from 'react-native-webview/lib/WebViewTypes';
 import { useActivity } from '../contexts';
 import IntelligentScraperUI from '../components/IntelligentScraperUI';
 import { exchangeRateService } from '../services/scrapers/exchangeRateService';
+import RicaOfficeButton from '../components/RicaOfficeButton';
 
 // Definición de interfaces
 interface Collaborator {
@@ -54,6 +55,7 @@ interface Activity {
 interface GamePlayScreenProps {
   onBack: () => void;
   onSelectCollaborator: (collaborator: Collaborator, areaName: string) => void;
+  onOpenRicaOffice: () => void;
 }
 
 // Colores para los avatares
@@ -71,7 +73,11 @@ const { width, height } = Dimensions.get('window');
 const GAME_AREA_PADDING = 40;
 const AVATAR_SIZE = 70;
 
-const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollaborator }) => {
+const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ 
+  onBack, 
+  onSelectCollaborator,
+  onOpenRicaOffice
+}) => {
   // Estados
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
   const [areas, setAreas] = useState<string[]>([]);
@@ -189,6 +195,15 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
     date: string;
     source: string;
     searchQuery: string;
+    genericData?: {
+      rawContent: string;
+      type: string;
+      query: string;
+      timestamp: string;
+      displayUnit?: string;
+      contextLabel?: string;
+      [key: string]: any; // Allow additional dynamic properties
+    };
   }>({
     exchangeRate: '17.26',
     date: new Date().toLocaleDateString(),
@@ -198,6 +213,97 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
   
   // First add a state variable to track whether result has been validated
   const [isResultValidated, setIsResultValidated] = useState(false);
+  
+  // Definición del tipo de retorno de analyzeQueryContext para evitar errores de tipado
+  type QueryContext = {
+    type: string;
+    displayValue: string;
+    displayUnit?: string;
+    label?: string;
+    source?: string;
+  };
+  
+  // Función para analizar el contexto de la consulta
+  const analyzeQueryContext = (query: string): QueryContext => {
+    // Enfoque completamente generalista
+    // En lugar de buscar palabras clave específicas, extraemos el contexto general
+    
+    // Dividir la consulta en palabras y analizar estructura
+    const words = query.toLowerCase().split(/\s+/);
+    
+    // Detectar si es una consulta de búsqueda de información
+    const searchIntent = {
+      isQuestion: query.includes('?') || words.some(w => ['cómo', 'qué', 'cuál', 'dónde', 'cuándo', 'quién', 'por qué'].includes(w)),
+      isPriceRelated: words.some(w => ['precio', 'costo', 'valor', 'tarifa', 'cotización', 'coste'].includes(w)),
+      isLocationBased: words.some(w => ['en', 'cerca', 'ubicación', 'zona', 'región', 'ciudad', 'país', 'cdmx', 'méxico'].includes(w)),
+      hasTimeContext: words.some(w => ['hoy', 'ayer', 'mañana', 'semana', 'mes', 'año', 'actual', '2024', '2025'].includes(w))
+    };
+    
+    // Extraer posibles sustantivos principales (últimas palabras después de preposiciones)
+    let mainTopics: string[] = [];
+    for (let i = 0; i < words.length; i++) {
+      if (['de', 'del', 'la', 'las', 'los', 'en', 'para', 'sobre', 'con'].includes(words[i]) && i < words.length - 1) {
+        // Capturar palabras después de preposiciones como posibles temas principales
+        mainTopics.push(words[i+1]);
+      }
+    }
+    
+    // Si no hay temas principales identificados por preposiciones, usar sustantivos más largos
+    if (mainTopics.length === 0) {
+      mainTopics = words.filter(w => w.length > 4);
+    }
+    
+    // Eliminar palabras comunes o de poca información
+    mainTopics = mainTopics.filter(topic => 
+      !['como', 'esta', 'estan', 'para', 'porque', 'aunque', 'desde', 'hasta'].includes(topic)
+    );
+    
+    // Crear una respuesta contextualmente relevante basada en el análisis
+    let contextResponse = {
+      type: 'general',
+      displayValue: 'Información relevante encontrada',
+      label: 'Resultado de búsqueda',
+      source: 'Búsqueda web'
+    };
+    
+    // Ajustar según el análisis de intención
+    if (searchIntent.isPriceRelated) {
+      contextResponse.type = 'price';
+      contextResponse.displayValue = mainTopics.length > 0 ? 
+        `Información de precios para ${mainTopics.slice(0, 3).join(', ')}` : 
+        'Datos de precios actualizados';
+      contextResponse.label = 'Información de Precios';
+      
+      // Si hay suficiente contexto, proporcionar un valor simulado contextualmente relevante
+      if (mainTopics.length > 0) {
+        // Generar un precio simulado basado en un hash simple del tema principal
+        const randomSeed = mainTopics[0].split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+        const simulatedPrice = (50 + (randomSeed % 200)).toFixed(2);
+        contextResponse.displayValue = simulatedPrice;
+        contextResponse.displayUnit = searchIntent.isLocationBased ? 'MXN' : '$';
+      }
+    }
+    
+    // Ajustar la fuente basada en el contexto
+    if (searchIntent.isLocationBased) {
+      if (words.some(w => ['cdmx', 'méxico', 'mexico', 'df'].includes(w))) {
+        contextResponse.source = 'Fuentes locales CDMX';
+      } else {
+        contextResponse.source = 'Agregador de fuentes regionales';
+      }
+    }
+    
+    // Agregar unidad de tiempo si es relevante
+    if (searchIntent.hasTimeContext) {
+      if (words.some(w => ['2025', '2024'].includes(w))) {
+        contextResponse.label += ` (${words.find(w => ['2025', '2024'].includes(w))})`;
+      } else if (words.some(w => ['mes', 'mensual', 'semana', 'semanal'].includes(w))) {
+        contextResponse.displayUnit += words.some(w => ['mes', 'mensual'].includes(w)) ? '/mes' : '/semana';
+      }
+    }
+    
+    return contextResponse;
+  };
   
   // Cargar datos al inicio
   useEffect(() => {
@@ -261,7 +367,7 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
         // Asegurarse de que la visualización de scraping esté oculta al inicio
         setShowScrapingVisualizer(false);
         
-        // Deshabilitamos las animaciones por completo
+        // Deshabilitamos animaciones por completo
         // setTimeout(() => {
         //   try {
         //     startAnimations();
@@ -796,124 +902,188 @@ Tu respuesta debe contener ÚNICAMENTE los términos de búsqueda, nada más.`
   const simulateWebSearchProcess = (query: string) => {
     console.log(`🔄 [Simulación] Iniciando simulación de búsqueda para: "${query}"`);
     
-    // Simular carga de Google (paso 1)
-    updateStepStatus('load-google', 'completed', 'Página cargada correctamente');
-    console.log(`✅ [Paso 1/5] Página de Google cargada`);
-    
-    // Simular enfoque en barra de búsqueda (paso 2)
-    setTimeout(() => {
-      updateStepStatus('focus-search', 'in-progress', 'Enfocando campo de búsqueda...');
-      console.log(`🔄 [Paso 2/5] Enfocando barra de búsqueda...`);
+    try {
+      // Simular carga de Google (paso 1)
+      updateStepStatus('load-google', 'completed', 'Página cargada correctamente');
+      console.log(`✅ [Paso 1/5] Página de Google cargada`);
       
+      // Simular enfoque en barra de búsqueda (paso 2)
       setTimeout(() => {
-        updateStepStatus('focus-search', 'completed', 'Campo de búsqueda enfocado');
-        console.log(`✅ [Paso 2/5] Barra de búsqueda enfocada`);
-        
-        // Simular escritura (paso 3)
-        updateStepStatus('type-query', 'in-progress', 'Escribiendo consulta...');
-        console.log(`🔄 [Paso 3/5] Escribiendo consulta: "${query}"...`);
-        
-        setTimeout(() => {
-          updateStepStatus('type-query', 'completed', 'Consulta escrita completamente');
-          console.log(`✅ [Paso 3/5] Consulta escrita completamente`);
-          
-          // Simular clic en buscar (paso 4)
-          updateStepStatus('click-search', 'in-progress', 'Haciendo clic en botón de búsqueda...');
-          console.log(`🔄 [Paso 4/5] Haciendo clic en botón de búsqueda...`);
+        try {
+          updateStepStatus('focus-search', 'in-progress', 'Enfocando campo de búsqueda...');
+          console.log(`🔄 [Paso 2/5] Enfocando barra de búsqueda...`);
           
           setTimeout(() => {
-            updateStepStatus('click-search', 'completed', 'Clic realizado');
-            console.log(`✅ [Paso 4/5] Clic realizado en botón de búsqueda`);
-            
-            // Actualizar URL para mostrar resultados
-            console.log(`🌐 [Navegación] Cambiando a URL de resultados`);
-            setWebViewUrl(`https://www.google.com/search?q=${encodeURIComponent(query)}`);
-            
-            // Simular visualización de resultados (paso 5)
-            updateStepStatus('view-results', 'in-progress', 'Cargando resultados...');
-            console.log(`🔄 [Paso 5/5] Cargando y visualizando resultados...`);
-            
-            setTimeout(() => {
-              updateStepStatus('view-results', 'completed', 'Resultados visualizados correctamente');
-              console.log(`✅ [Paso 5/5] Resultados visualizados correctamente`);
-              console.log(`🎉 [Simulación] Proceso de búsqueda completado con éxito`);
+            try {
+              updateStepStatus('focus-search', 'completed', 'Campo de búsqueda enfocado');
+              console.log(`✅ [Paso 2/5] Barra de búsqueda enfocada`);
               
-              // Preparar resultado consolidado
-              console.log(`📊 [Resultado] Preparando resultado consolidado...`);
+              // Simular escritura (paso 3)
+              updateStepStatus('type-query', 'in-progress', 'Escribiendo consulta...');
+              console.log(`🔄 [Paso 3/5] Escribiendo consulta: "${query}"...`);
               
-              // Obtener la fecha actual para mostrar fechas reales en los resultados
-              const currentDate = new Date();
-              const formattedDate = currentDate.toLocaleDateString('es-MX', {
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric'
-              });
-              
-              // Generar resultado dinámico basado en la consulta y actividad actual
-              let dynamicResult;
-              
-              // Determinar el tipo de consulta basado en palabras clave
-              const normalizedQuery = query.toLowerCase();
-              
-              if (normalizedQuery.includes('usd') && normalizedQuery.includes('mxn')) {
-                // Tipo de cambio USD/MXN
-                dynamicResult = {
-                  exchangeRate: '17.26',
-                  date: formattedDate,
-                  source: 'Google Finance',
-                  searchQuery: query
-                };
-              } else if (normalizedQuery.includes('clima') || normalizedQuery.includes('weather')) {
-                // Clima
-                dynamicResult = {
-                  exchangeRate: '24°C',
-                  date: formattedDate,
-                  source: 'Weather Service',
-                  searchQuery: query
-                };
-              } else if (normalizedQuery.includes('bitcoin') || normalizedQuery.includes('btc')) {
-                // Precio Bitcoin
-                dynamicResult = {
-                  exchangeRate: '68,245.32',
-                  date: formattedDate,
-                  source: 'CoinMarketCap',
-                  searchQuery: query
-                };
-              } else if (normalizedQuery.includes('oro') || normalizedQuery.includes('gold')) {
-                // Precio oro
-                dynamicResult = {
-                  exchangeRate: '2,345.67',
-                  date: formattedDate,
-                  source: 'Gold Price Index',
-                  searchQuery: query
-                };
-              } else {
-                // Consulta genérica - usar datos genéricos
-                dynamicResult = {
-                  exchangeRate: 'Resultado',
-                  date: formattedDate,
-                  source: 'Google Search',
-                  searchQuery: query
-                };
-              }
-              
-              // Actualizar el estado con el resultado dinámico
-              setConsolidatedResult(dynamicResult);
-              
-              // Ocultar visualizador y mostrar resultados
               setTimeout(() => {
-                setShowScrapingVisualizer(false);
-                console.log(`🔍 [Visualización] Ocultando visualizador de proceso`);
-                
-                // Mostrar el modal de resultado consolidado
-                setShowResultModal(true);
-                console.log(`📈 [Resultado] Mostrando resultado consolidado`);
-              }, 1000);
-            }, 2000);
+                try {
+                  updateStepStatus('type-query', 'completed', 'Consulta escrita completamente');
+                  console.log(`✅ [Paso 3/5] Consulta escrita completamente`);
+                  
+                  // Simular clic en buscar (paso 4)
+                  updateStepStatus('click-search', 'in-progress', 'Haciendo clic en botón de búsqueda...');
+                  console.log(`🔄 [Paso 4/5] Haciendo clic en botón de búsqueda...`);
+                  
+                  setTimeout(() => {
+                    try {
+                      updateStepStatus('click-search', 'completed', 'Clic realizado');
+                      console.log(`✅ [Paso 4/5] Clic realizado en botón de búsqueda`);
+                      
+                      // Actualizar URL para mostrar resultados
+                      console.log(`🌐 [Navegación] Cambiando a URL de resultados`);
+                      setWebViewUrl(`https://www.google.com/search?q=${encodeURIComponent(query)}`);
+                      
+                      // Simular visualización de resultados (paso 5)
+                      updateStepStatus('view-results', 'in-progress', 'Cargando resultados...');
+                      console.log(`🔄 [Paso 5/5] Cargando y visualizando resultados...`);
+                      
+                      setTimeout(() => {
+                        try {
+                          updateStepStatus('view-results', 'completed', 'Resultados visualizados correctamente');
+                          console.log(`✅ [Paso 5/5] Resultados visualizados correctamente`);
+                          console.log(`🎉 [Simulación] Proceso de búsqueda completado con éxito`);
+                          
+                          // Preparar resultado consolidado
+                          console.log(`📊 [Resultado] Preparando resultado consolidado...`);
+                          
+                          // Obtener la fecha actual para mostrar fechas reales en los resultados
+                          const currentDate = new Date();
+                          const formattedDate = currentDate.toLocaleDateString('es-MX', {
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric'
+                          });
+                          
+                          // Nueva implementación generalista
+                          // En lugar de casos específicos, extraer y presentar información de forma genérica
+                          // Analizamos el contexto de la consulta para determinar el tipo de presentación
+                          try {
+                            const queryContext = analyzeQueryContext(query.toLowerCase());
+                            
+                            const dynamicResult = {
+                              exchangeRate: queryContext.displayValue,
+                              date: formattedDate,
+                              source: queryContext.source || 'Google Search',
+                              searchQuery: query,
+                              genericData: {
+                                rawContent: 'Datos extraídos de la búsqueda',
+                                type: queryContext.type,
+                                query: query,
+                                displayUnit: queryContext.displayUnit,
+                                contextLabel: queryContext.label,
+                                timestamp: new Date().toISOString()
+                              }
+                            };
+                            
+                            // Actualizar el estado con el resultado dinámico
+                            setConsolidatedResult(dynamicResult);
+                            
+                            // Ocultar visualizador y mostrar resultados
+                            setTimeout(() => {
+                              try {
+                                setShowScrapingVisualizer(false);
+                                console.log(`🔍 [Visualización] Ocultando visualizador de proceso`);
+                                
+                                // Mostrar el modal de resultado consolidado
+                                setShowResultModal(true);
+                                console.log(`📈 [Resultado] Mostrando resultado consolidado`);
+                              } catch (error) {
+                                console.error("Error en la finalización del proceso:", error);
+                                
+                                // Garantizar que se muestre algún resultado en caso de error
+                                setShowScrapingVisualizer(false);
+                                setShowResultModal(true);
+                              }
+                            }, 1000);
+                          } catch (error) {
+                            console.error("Error al analizar el contexto de la consulta:", error);
+                            
+                            // Crear un resultado genérico en caso de error
+                            const fallbackResult = {
+                              exchangeRate: 'Información encontrada',
+                              date: formattedDate,
+                              source: 'Búsqueda web',
+                              searchQuery: query,
+                              genericData: {
+                                rawContent: 'Datos extraídos de la búsqueda',
+                                type: 'general',
+                                query: query,
+                                timestamp: new Date().toISOString()
+                              }
+                            };
+                            
+                            setConsolidatedResult(fallbackResult);
+                            setShowScrapingVisualizer(false);
+                            setShowResultModal(true);
+                          }
+                        } catch (error) {
+                          console.error("Error en visualización de resultados:", error);
+                          
+                          // Asegurarnos de que se complete el proceso incluso con error
+                          setShowScrapingVisualizer(false);
+                          setShowResultModal(true);
+                        }
+                      }, 2000);
+                    } catch (error) {
+                      console.error("Error en clic de búsqueda:", error);
+                      handleSearchError(error);
+                    }
+                  }, 1000);
+                } catch (error) {
+                  console.error("Error en escritura de consulta:", error);
+                  handleSearchError(error);
+                }
+              }, 2000);
+            } catch (error) {
+              console.error("Error en enfoque de búsqueda:", error);
+              handleSearchError(error);
+            }
           }, 1000);
-        }, 2000);
+        } catch (error) {
+          console.error("Error inicial en búsqueda:", error);
+          handleSearchError(error);
+        }
       }, 1000);
-    }, 1000);
+    } catch (error) {
+      console.error("Error fatal en proceso de búsqueda:", error);
+      handleSearchError(error);
+    }
+  };
+  
+  // Función auxiliar para manejar errores en la búsqueda
+  const handleSearchError = (error: unknown) => {
+    console.error("Error en proceso de búsqueda:", error);
+    
+    // Garantizar que se oculte el visualizador y se muestre algún resultado
+    setShowScrapingVisualizer(false);
+    
+    // Crear un resultado genérico de error
+    const errorResult = {
+      exchangeRate: 'Error en búsqueda',
+      date: new Date().toLocaleDateString(),
+      source: 'Sistema',
+      searchQuery: 'Error en proceso de búsqueda',
+      genericData: {
+        rawContent: 'Error en el proceso',
+        type: 'error',
+        query: 'error',
+        timestamp: new Date().toISOString(),
+        contextLabel: 'Error en búsqueda'
+      }
+    };
+    
+    // Actualizar el estado con el resultado de error
+    setConsolidatedResult(errorResult);
+    
+    // Mostrar resultado con el error
+    setShowResultModal(true);
   };
   
   // Direct method to get exchange rates without relying on API
@@ -1263,59 +1433,16 @@ Tu respuesta debe contener ÚNICAMENTE los términos de búsqueda, nada más.`
       // Preparar los datos a validar según el tipo de consulta
       let dataToValidate: any;
       
-      if (normalizedQuery.includes('usd') && normalizedQuery.includes('mxn')) {
-        // Tipo de cambio USD/MXN
-        dataToValidate = {
-          type: 'exchange_rate',
-          rate: consolidatedResult.exchangeRate,
-          from: 'USD',
-          to: 'MXN',
-          date: consolidatedResult.date,
-          source: consolidatedResult.source,
-          searchQuery: consolidatedResult.searchQuery
-        };
-      } else if (normalizedQuery.includes('clima') || normalizedQuery.includes('temperatura')) {
-        // Clima
-        dataToValidate = {
-          type: 'weather',
-          temperature: consolidatedResult.exchangeRate,
-          location: 'Ciudad de México',
-          date: consolidatedResult.date,
-          source: consolidatedResult.source,
-          searchQuery: consolidatedResult.searchQuery
-        };
-      } else if (normalizedQuery.includes('bitcoin') || normalizedQuery.includes('btc')) {
-        // Precio Bitcoin
-        dataToValidate = {
-          type: 'crypto_price',
-          price: consolidatedResult.exchangeRate,
-          currency: 'BTC',
-          unit: 'USD',
-          date: consolidatedResult.date,
-          source: consolidatedResult.source,
-          searchQuery: consolidatedResult.searchQuery
-        };
-      } else if (normalizedQuery.includes('oro') || normalizedQuery.includes('gold')) {
-        // Precio oro
-        dataToValidate = {
-          type: 'commodity_price',
-          price: consolidatedResult.exchangeRate,
-          commodity: 'gold',
-          unit: 'USD',
-          date: consolidatedResult.date,
-          source: consolidatedResult.source,
-          searchQuery: consolidatedResult.searchQuery
-        };
-      } else {
-        // Consulta genérica
-        dataToValidate = {
-          type: 'generic_search',
-          result: consolidatedResult.exchangeRate,
-          date: consolidatedResult.date,
-          source: consolidatedResult.source,
-          searchQuery: consolidatedResult.searchQuery
-        };
-      }
+      // Enfoque generalista para validación
+      dataToValidate = {
+        type: 'generic_search',
+        result: consolidatedResult.exchangeRate,
+        date: consolidatedResult.date,
+        source: consolidatedResult.source,
+        searchQuery: consolidatedResult.searchQuery,
+        // Incluir datos adicionales si existen
+        additionalData: consolidatedResult.genericData || {}
+      };
       
       // Llamar al servicio de validación
       const result = await validateSearchResult(
@@ -2200,50 +2327,23 @@ Tu respuesta debe contener ÚNICAMENTE los términos de búsqueda, nada más.`
             
             <View style={styles.resultCard}>
               {(() => {
-                const normalizedQuery = consolidatedResult.searchQuery.toLowerCase();
-                
-                if (normalizedQuery.includes('usd') && normalizedQuery.includes('mxn')) {
-                  // Formato para tipo de cambio USD/MXN
-                  return (
-                    <>
-                      <Text style={styles.resultLabel}>Tipo de Cambio USD/MXN:</Text>
-                      <Text style={styles.exchangeRateValue}>{consolidatedResult.exchangeRate} MXN</Text>
-                      <Text style={styles.resultPerDollar}>por 1 USD</Text>
-                    </>
-                  );
-                } else if (normalizedQuery.includes('clima') || normalizedQuery.includes('weather')) {
-                  // Formato para clima
-                  return (
-                    <>
-                      <Text style={styles.resultLabel}>Temperatura:</Text>
-                      <Text style={styles.exchangeRateValue}>{consolidatedResult.exchangeRate}</Text>
-                    </>
-                  );
-                } else if (normalizedQuery.includes('bitcoin') || normalizedQuery.includes('btc')) {
-                  // Formato para Bitcoin
-                  return (
-                    <>
-                      <Text style={styles.resultLabel}>Precio Bitcoin:</Text>
-                      <Text style={styles.exchangeRateValue}>{consolidatedResult.exchangeRate} USD</Text>
-                    </>
-                  );
-                } else if (normalizedQuery.includes('oro') || normalizedQuery.includes('gold')) {
-                  // Formato para precio del oro
-                  return (
-                    <>
-                      <Text style={styles.resultLabel}>Precio Oro:</Text>
-                      <Text style={styles.exchangeRateValue}>{consolidatedResult.exchangeRate} USD</Text>
-                    </>
-                  );
-                } else {
-                  // Formato genérico
-                  return (
-                    <>
-                      <Text style={styles.resultLabel}>Resultado:</Text>
-                      <Text style={styles.exchangeRateValue}>{consolidatedResult.exchangeRate}</Text>
-                    </>
-                  );
-                }
+                // Implementación generalista del visualizador de resultados
+                return (
+                  <>
+                    <Text style={styles.resultLabel}>
+                      {consolidatedResult.genericData?.contextLabel || 'Resultado:'}
+                    </Text>
+                    <View style={styles.resultValueContainer}>
+                      <Text style={styles.exchangeRateValue}>
+                        {consolidatedResult.exchangeRate}
+                        {consolidatedResult.genericData?.displayUnit ? ` ${consolidatedResult.genericData.displayUnit}` : ''}
+                      </Text>
+                    </View>
+                    <Text style={styles.resultSource}>
+                      {consolidatedResult.source}
+                    </Text>
+                  </>
+                );
               })()}
             </View>
             
@@ -2310,6 +2410,9 @@ Tu respuesta debe contener ÚNICAMENTE los términos de búsqueda, nada más.`
           </View>
         </View>
       </Modal>
+      
+      {/* Botón para la Oficina de Rica */}
+      <RicaOfficeButton onPress={onOpenRicaOffice} />
     </View>
   );
 };
@@ -3618,6 +3721,37 @@ const styles = StyleSheet.create({
   validationBadgeText: {
     color: '#f8f8f2',
     fontSize: 14,
+    fontWeight: 'bold',
+  },
+  resultValueContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 5,
+  },
+  resultSource: {
+    color: '#8be9fd',
+    fontSize: 14,
+  },
+  navigationButtonsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 10,
+    backgroundColor: '#44475a',
+    borderTopWidth: 1,
+    borderTopColor: '#6272a4',
+  },
+  navigatorButton: {
+    backgroundColor: '#6272a4',
+    borderRadius: 25,
+    padding: 10,
+    alignItems: 'center',
+    flex: 1,
+    marginHorizontal: 5,
+  },
+  navigatorButtonText: {
+    color: '#f8f8f2',
+    fontSize: 16,
     fontWeight: 'bold',
   },
 });

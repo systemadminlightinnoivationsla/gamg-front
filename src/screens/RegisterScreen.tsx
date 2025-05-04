@@ -11,7 +11,7 @@ import {
   Easing,
   Dimensions
 } from 'react-native';
-import { authService } from '../services/api';
+import { authService } from '../services/auth.service';
 
 interface RegisterScreenProps {
   onRegister: (username: string) => void;
