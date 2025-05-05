@@ -2027,3 +2027,206 @@ export const validateSearchResult = async (
     };
   }
 };
+
+/**
+ * Sintetiza los resultados de scraping en un formato legible y conciso
+ * @param originalQuery La consulta original que generó los resultados
+ * @param context El contexto o tipo de información (clima, tipo de cambio, etc.)
+ * @param scrapingData Los datos relevantes extraídos del scraping
+ * @returns Una síntesis clara y legible de los resultados
+ */
+export const synthesizeScrapingResult = async (
+  originalQuery: string,
+  context: string,
+  scrapingData: any
+): Promise<string> => {
+  try {
+    console.log('🔄 Solicitando síntesis de resultados de scraping a OpenRouter...');
+    
+    // Verificar si estamos en modo fallback
+    if (USE_FALLBACK_SERVICE) {
+      console.log('⚠️ Usando servicio de fallback para síntesis de resultados');
+      return generateFallbackSynthesis(originalQuery, context, scrapingData);
+    }
+    
+    // Extraer campos relevantes para la síntesis
+    const { 
+      resumen = '', 
+      detalles = '', 
+      fecha = '', 
+      precio = '', 
+      tipo_cambio = '',
+      inverso = '',
+      temperatura = '',
+      condicion = '',
+      humedad = '',
+      viento = ''
+    } = scrapingData;
+    
+    // Formatear los datos para el prompt
+    let dataDescription = '';
+    
+    // Añadir campos generales
+    if (fecha) dataDescription += `Fecha y hora: ${fecha}\n`;
+    if (resumen) dataDescription += `Resumen: ${resumen}\n`;
+    if (detalles) dataDescription += `Detalles: ${detalles}\n`;
+    
+    // Añadir campos específicos según el contexto
+    if (context.includes('cambio') && tipo_cambio) {
+      dataDescription += `Tipo de cambio: ${tipo_cambio}\n`;
+      if (inverso) dataDescription += `Valor inverso: ${inverso}\n`;
+    } else if (context.includes('meteorológica') && temperatura) {
+      dataDescription += `Temperatura: ${temperatura}\n`;
+      if (condicion) dataDescription += `Condición: ${condicion}\n`;
+      if (humedad) dataDescription += `Humedad: ${humedad}\n`;
+      if (viento) dataDescription += `Viento: ${viento}\n`;
+    } else if (context.includes('cripto') && precio) {
+      dataDescription += `Precio: ${precio}\n`;
+    }
+    
+    // Sistema de prompt dinámico basado en el contexto
+    let systemPrompt = `Eres un asistente experto en sintetizar información de ${context} en español.
+    Tu tarea es convertir los datos técnicos obtenidos mediante scraping web en una respuesta clara, 
+    concisa y fácil de entender para un usuario común.
+    
+    Debes proporcionar la información solicitada en un formato natural, como si estuvieras respondiendo
+    directamente a la consulta del usuario. Tu respuesta debe ser breve pero completa, 
+    incluyendo los datos relevantes y omitiendo información redundante.
+    
+    IMPORTANTE:
+    - NO incluyas frases como "Según los datos..." o "La información proporcionada...".
+    - NO menciones que eres un asistente ni que estás procesando datos.
+    - Habla DIRECTAMENTE sobre la información, en primera persona, como un experto en la materia.
+    - Tu respuesta debe tener 2-3 oraciones como máximo, excepto si hay múltiples datos complejos.
+    - Incluye TODOS los datos numéricos relevantes (precios, temperaturas, etc.).
+    - Responde EXCLUSIVAMENTE con la síntesis, sin frases introductorias ni conclusiones.
+    `;
+    
+    // Añadir instrucciones específicas según el contexto
+    if (context.includes('cambio')) {
+      systemPrompt += `
+      Para consultas de tipo de cambio, incluye siempre:
+      - El valor principal (ej. "17.68 MXN por USD")
+      - El momento de la consulta o actualización
+      - Si aplicara, alguna tendencia relevante
+      `;
+    } else if (context.includes('meteorológica')) {
+      systemPrompt += `
+      Para consultas de clima, incluye siempre:
+      - La temperatura (en °C o como venga especificada)
+      - La condición climática principal (soleado, nublado, etc.)
+      - Información sobre humedad o viento si está disponible
+      - La ubicación y momento de la información
+      `;
+    } else if (context.includes('cripto')) {
+      systemPrompt += `
+      Para consultas de criptomonedas, incluye siempre:
+      - El precio actual en la divisa especificada
+      - El momento de la consulta
+      - Asegúrate de incluir el símbolo de la criptomoneda (BTC, ETH, etc.)
+      `;
+    }
+    
+    // Preparar mensajes para la API
+    const messages = [
+      {
+        role: 'system',
+        content: systemPrompt
+      },
+      {
+        role: 'user',
+        content: `Consulta original: "${originalQuery}"\n\nDatos obtenidos:\n${dataDescription}`
+      }
+    ];
+    
+    // Llamar a OpenRouter con timeout
+    const data = await callOpenRouterWithTimeout<any>(
+      messages,
+      { temperature: 0.7, max_tokens: 200 },
+      15000 // 15 segundos
+    );
+    
+    // Verificar si se recibió la estructura esperada
+    if (!data.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
+      console.error('❌ Respuesta de API sin choices al sintetizar:', data);
+      return generateFallbackSynthesis(originalQuery, context, scrapingData);
+    }
+    
+    // Obtener la respuesta del modelo
+    const synthesis = data.choices[0].message.content.trim();
+    
+    console.log('✅ Síntesis de resultados completada');
+    return synthesis;
+    
+  } catch (error: any) {
+    console.error('❌ Error al sintetizar resultados de scraping:', error);
+    
+    // Manejar errores de rate limit
+    if (isRateLimitError(error)) {
+      handleRateLimitError(error);
+    }
+    
+    // Generar respuesta de emergencia en caso de error
+    return generateFallbackSynthesis(originalQuery, context, scrapingData);
+  }
+};
+
+/**
+ * Genera una síntesis de emergencia cuando OpenRouter no está disponible
+ */
+function generateFallbackSynthesis(
+  originalQuery: string,
+  context: string,
+  scrapingData: any
+): string {
+  console.log('⚠️ Generando síntesis de emergencia para resultados');
+  
+  try {
+    const { 
+      resumen = '', 
+      detalles = '', 
+      fecha = '', 
+      precio = '', 
+      tipo_cambio = '',
+      inverso = '',
+      temperatura = '',
+      condicion = '',
+      humedad = '',
+      viento = ''
+    } = scrapingData;
+    
+    // Intentar usar el resumen disponible si existe
+    if (resumen && resumen.length > 15) {
+      // Si el resumen ya parece una buena síntesis, usarlo directamente
+      if (!resumen.includes("Información para")) {
+        return resumen;
+      }
+    }
+    
+    // Generar síntesis basada en el tipo de contexto
+    if (context.includes('cambio') && tipo_cambio) {
+      return `El tipo de cambio actual es de ${tipo_cambio}${fecha ? ` (actualizado: ${fecha})` : ''}.${detalles ? ' ' + detalles.split('\n')[0] : ''}`;
+    } 
+    else if (context.includes('meteorológica') && temperatura) {
+      let síntesis = `La temperatura actual ${scrapingData.location ? `en ${scrapingData.location}` : ''} es de ${temperatura}`;
+      if (condicion) síntesis += ` con ${condicion.toLowerCase()}`;
+      if (fecha) síntesis += ` (${fecha})`;
+      return síntesis;
+    } 
+    else if (context.includes('cripto') && precio) {
+      return `El precio actual de Bitcoin es ${precio}${fecha ? ` (actualizado: ${fecha})` : ''}.`;
+    }
+    
+    // Si nada funciona, intentar con la primera línea de detalles o resumen
+    if (detalles) {
+      const firstLine = detalles.split('\n')[0];
+      if (firstLine.length > 15) return firstLine;
+    }
+    
+    // Último recurso, devolver algo genérico pero informativo
+    return `Información ${context ? `sobre ${context}` : 'solicitada'} actualizada${fecha ? ` a ${fecha}` : ''}.`;
+  } catch (e) {
+    // En caso de error en la generación de fallback, devolver mensaje ultra-genérico
+    return "Información actualizada disponible.";
+  }
+}

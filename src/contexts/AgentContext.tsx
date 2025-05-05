@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
-import { ollamaService } from '../services/ollamaService';
+import { unifiedAgentService } from '../services/unifiedAgentService';
 
 // Definir tipos
 type AgentProviderProps = {
@@ -20,14 +20,15 @@ const AgentContext = createContext<AgentContextType | undefined>(undefined);
 // Proveedor del contexto
 export const AgentProvider: React.FC<AgentProviderProps> = ({ children }) => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [selectedModel, setSelectedModel] = useState<string>('llama2');
+  const [selectedModel, setSelectedModel] = useState<string>('llama2:13b');
   const [lastResult, setLastResult] = useState<any>(null);
 
   // Función para ejecutar un prompt con el agente
   const runAgentPrompt = async (prompt: string, tools?: any[]) => {
     setIsLoading(true);
     try {
-      const result = await ollamaService.runAgent(prompt, tools, selectedModel);
+      // Usar unifiedAgentService con executeWebSearch para todos los prompts
+      const result = await unifiedAgentService.executeWebSearch(prompt);
       setLastResult(result);
       return result;
     } catch (error) {

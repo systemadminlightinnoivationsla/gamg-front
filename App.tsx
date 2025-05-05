@@ -12,9 +12,31 @@ import SettingsScreen from './src/screens/SettingsScreen';
 import GamePlayScreen from './src/screens/GamePlayScreen';
 import CollaboratorDetailScreen from './src/screens/CollaboratorDetailScreen';
 import AgentScreen from './src/screens/AgentScreen';
-import RicaOfficeScreen from './src/screens/RicaOfficeScreen';
+import UserActivityScreen from './src/screens/UserActivityScreen';
 
-type Screen = 'login' | 'register' | 'game-menu' | 'settings' | 'game-play' | 'collaborator-detail' | 'agent' | 'rica-office';
+// User configuration data
+const usersData = {
+  rica: {
+    name: 'Rica',
+    role: 'Finanzas',
+    color: '#50fa7b',
+    activities: [] // Activities will be loaded dynamically or from context
+  },
+  xander: {
+    name: 'Xander',
+    role: 'Tecnología',
+    color: '#bd93f9',
+    activities: []
+  },
+  spot: {
+    name: 'Spot',
+    role: 'Operaciones',
+    color: '#ff79c6',
+    activities: []
+  }
+};
+
+type Screen = 'login' | 'register' | 'game-menu' | 'settings' | 'game-play' | 'collaborator-detail' | 'agent' | 'user-activity';
 
 const { width } = Dimensions.get('window');
 
@@ -26,13 +48,15 @@ export default function App() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [selectedCollaborator, setSelectedCollaborator] = useState<any>(null);
   const [selectedAreaName, setSelectedAreaName] = useState<string>('');
+  const [activeUser, setActiveUser] = useState<string>('rica'); // The currently active user
+  const [userActivities, setUserActivities] = useState<any[]>([]);
   
-  // Animaciones para transiciones
+  // Animations for transitions
   const screenOpacity = useRef(new Animated.Value(1)).current;
   const screenTranslateX = useRef(new Animated.Value(0)).current;
   const isAnimating = useRef(false);
 
-  // Comprobar si hay un token guardado al iniciar la aplicación
+  // Check for stored token on app start
   useEffect(() => {
     const checkToken = async () => {
       try {
@@ -45,7 +69,7 @@ export default function App() {
           setCurrentScreen('game-menu');
         }
       } catch (error) {
-        console.error('Error al recuperar el token:', error);
+        console.error('Error retrieving token:', error);
       } finally {
         setIsLoading(false);
       }
@@ -54,17 +78,17 @@ export default function App() {
     checkToken();
   }, []);
 
-  // Función para cambiar de pantalla con animación
+  // Function to change screens with animation
   const changeScreen = (newScreen: Screen, direction: 'left' | 'right' = 'right') => {
     if (isAnimating.current) return;
     isAnimating.current = true;
     
     setPreviousScreen(currentScreen);
     
-    // Configurar dirección de la animación
+    // Set animation direction
     const multiplier = direction === 'right' ? 1 : -1;
     
-    // Primera parte de la animación (salida)
+    // First part of animation (exit)
     Animated.parallel([
       Animated.timing(screenOpacity, {
         toValue: 0,
@@ -77,13 +101,13 @@ export default function App() {
         useNativeDriver: true
       })
     ]).start(() => {
-      // Cambiar la pantalla actual
+      // Change the current screen
       setCurrentScreen(newScreen);
       
-      // Resetear la posición para la entrada
+      // Reset position for entrance
       screenTranslateX.setValue(100 * multiplier);
       
-      // Segunda parte de la animación (entrada)
+      // Second part of animation (entrance)
       Animated.parallel([
         Animated.timing(screenOpacity, {
           toValue: 1,
@@ -107,7 +131,7 @@ export default function App() {
       setUsername(username);
       changeScreen('game-menu');
     } catch (error) {
-      Alert.alert('Error', 'No se pudo guardar la sesión');
+      Alert.alert('Error', 'Could not save session');
     }
   };
 
@@ -117,7 +141,7 @@ export default function App() {
       setUsername(username);
       changeScreen('game-menu');
     } catch (error) {
-      Alert.alert('Error', 'No se pudo guardar la sesión');
+      Alert.alert('Error', 'Could not save session');
     }
   };
 
@@ -129,7 +153,7 @@ export default function App() {
       setUsername('');
       changeScreen('login', 'left');
     } catch (error) {
-      Alert.alert('Error', 'No se pudo cerrar la sesión');
+      Alert.alert('Error', 'Could not log out');
     }
   };
 
@@ -159,20 +183,68 @@ export default function App() {
     changeScreen('game-play', 'left');
   };
 
-  const handleOpenRicaOffice = () => {
-    changeScreen('rica-office');
+  const handleOpenUserActivity = async (userId?: string) => {
+    try {
+      const selectedUserId = userId || activeUser;
+      setActiveUser(selectedUserId);
+      
+      // Cargar actividades específicas para el usuario seleccionado
+      setUserActivities([]); // Limpiar actividades anteriores
+      
+      // Buscar en AsyncStorage el colaborador con este userID
+      const collaboratorsData = await AsyncStorage.getItem('collaborators');
+      let collaboratorId = '';
+      
+      if (collaboratorsData) {
+        const collaborators = JSON.parse(collaboratorsData);
+        // Buscar el colaborador que coincida con el userId
+        const collaborator = collaborators.find((c: any) => c.name.toLowerCase() === selectedUserId.toLowerCase());
+        if (collaborator) {
+          collaboratorId = collaborator.id;
+        }
+      }
+      
+      // Si encontramos un collaboratorId, cargamos sus actividades específicas
+      if (collaboratorId) {
+        const storedActivities = await AsyncStorage.getItem(`activities_${collaboratorId}`);
+        if (storedActivities) {
+          const parsedActivities = JSON.parse(storedActivities);
+          // Mapear actividades añadiendo el id y nombre del colaborador si no lo tienen
+          const activitiesWithCollaborator = parsedActivities.map((activity: any) => ({
+            ...activity,
+            collaboratorId: activity.collaboratorId || collaboratorId,
+            collaboratorName: activity.collaboratorName || usersData[selectedUserId as keyof typeof usersData]?.name || 'Usuario',
+            // Asegurar que exista el campo categories
+            categories: activity.categories || [],
+            // Mantener los workflowMessages si existen
+            workflowMessages: activity.workflowMessages || []
+          }));
+          
+          setUserActivities(activitiesWithCollaborator);
+        }
+      }
+      
+      changeScreen('user-activity');
+    } catch (error) {
+      console.error('Error cargando actividades de usuario:', error);
+      // En caso de error, seguir navegando pero sin actividades cargadas
+      changeScreen('user-activity');
+    }
   };
 
-  // Mostrar pantalla de carga mientras se verifica el token
+  // Show loading screen while checking token
   if (isLoading) {
     return (
       <View style={styles.container}>
-        {/* Aquí podría ir un componente de carga animado */}
+        {/* Could include an animated loading component here */}
       </View>
     );
   }
 
-  // Renderizar la pantalla actual con animación
+  // Get the active user data
+  const currentUserData = usersData[activeUser as keyof typeof usersData] || usersData.rica;
+
+  // Render the current screen with animation
   return (
     <AgentProvider>
       <ActivityProvider>
@@ -207,7 +279,8 @@ export default function App() {
                 onStartGame={handleStartGame}
                 onSettings={handleSettings}
                 onAgents={handleAgents}
-                onOpenRicaOffice={handleOpenRicaOffice}
+                onOpenUserActivity={handleOpenUserActivity}
+                users={usersData}
               />
             )}
             
@@ -221,7 +294,7 @@ export default function App() {
               <GamePlayScreen
                 onBack={handleBackToMenu}
                 onSelectCollaborator={handleSelectCollaborator}
-                onOpenRicaOffice={handleOpenRicaOffice}
+                onOpenUserActivity={handleOpenUserActivity}
               />
             )}
             
@@ -239,9 +312,13 @@ export default function App() {
               />
             )}
             
-            {currentScreen === 'rica-office' && (
-              <RicaOfficeScreen
+            {currentScreen === 'user-activity' && (
+              <UserActivityScreen
                 onBack={handleBackToMenu}
+                userName={currentUserData.name}
+                userRole={currentUserData.role}
+                userColor={currentUserData.color}
+                initialActivities={userActivities}
               />
             )}
           </Animated.View>

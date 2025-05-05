@@ -1,21 +1,34 @@
 import React from 'react';
 import { StyleSheet, TouchableOpacity, Text, View } from 'react-native';
 
-interface RicaOfficeButtonProps {
+interface UserActivityButtonProps {
   onPress: () => void;
+  userName?: string;
+  userInitial?: string;
+  backgroundColor?: string;
+  iconColor?: string;
 }
 
-const RicaOfficeButton: React.FC<RicaOfficeButtonProps> = ({ onPress }) => {
+const UserActivityButton: React.FC<UserActivityButtonProps> = ({ 
+  onPress, 
+  userName = 'Rica', 
+  userInitial = 'R',
+  backgroundColor = '#50fa7b',
+  iconColor = '#282a36'
+}) => {
   return (
     <TouchableOpacity 
-      style={styles.container}
+      style={[
+        styles.container, 
+        { backgroundColor: `rgba(${parseInt(backgroundColor.substr(1, 2), 16)}, ${parseInt(backgroundColor.substr(3, 2), 16)}, ${parseInt(backgroundColor.substr(5, 2), 16)}, 0.2)` }
+      ]}
       onPress={onPress}
       activeOpacity={0.7}
     >
-      <View style={styles.iconContainer}>
-        <Text style={styles.iconText}>R</Text>
+      <View style={[styles.iconContainer, { backgroundColor }]}>
+        <Text style={[styles.iconText, { color: iconColor }]}>{userInitial}</Text>
       </View>
-      <Text style={styles.text}>Oficina de Rica</Text>
+      <Text style={styles.text}>Oficina de {userName}</Text>
     </TouchableOpacity>
   );
 };
@@ -50,4 +63,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default RicaOfficeButton; 
+export default UserActivityButton; 

@@ -9,44 +9,85 @@ import {
   Image
 } from 'react-native';
 import { useAgent } from '../contexts/AgentContext';
-import { ollamaService } from '../services/ollamaService';
+import { unifiedAgentService } from '../services/unifiedAgentService';
 
-interface RicaOfficeScreenProps {
+interface UserActivityScreenProps {
   onBack: () => void;
+  userName?: string;
+  userRole?: string;
+  userColor?: string;
+  initialActivities?: any[];
 }
 
-// Actividades específicas de Rica
-const ricaActivities = [
-  {
-    id: '1',
-    title: 'Facturación clientes',
-    description: 'Generar la factura de daystore cada 1er día del mes en el portal web del sat y enviarla por correo',
-    category: 'Administrativo',
-    frequency: 'Mensual (Día 1)',
-    duration: '30 minutos',
-    status: 'Programada',
-    lastExecution: '5/1/2025',
-    nextExecution: '6/1/2025'
-  },
-  {
-    id: '2',
-    title: 'Validación hora y fecha y precio de BTC contra USD',
-    description: 'Navegar en internet en google y en la primera página visitar la hora y fecha actuales y luego de que tengas validada la hora y la fecha lo que debes hacer es ingresar a google y buscar el precio actual de BTC contra USDT y consolidar ambos datos e indicar el precio actual con la hora y fecha de BTC',
-    category: 'Investigación',
-    frequency: 'Bajo demanda',
-    duration: 'Variable',
-    status: 'Disponible',
-    lastExecution: '4/27/2025',
-    nextExecution: 'N/A'
-  }
-];
-
-const RicaOfficeScreen: React.FC<RicaOfficeScreenProps> = ({ onBack }) => {
+const UserActivityScreen: React.FC<UserActivityScreenProps> = ({ 
+  onBack, 
+  userName = "Usuario",
+  userRole = "Colaborador",
+  userColor = "#50fa7b",
+  initialActivities = [] 
+}) => {
+  const [activities, setActivities] = useState<any[]>([]);
   const [selectedActivity, setSelectedActivity] = useState<any>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [result, setResult] = useState<any>(null);
   
   const { runAgentPrompt } = useAgent();
+
+  // Cargar actividades al iniciar
+  useEffect(() => {
+    if (initialActivities && initialActivities.length > 0) {
+      setActivities(initialActivities);
+    } else {
+      // Actividades de ejemplo si no se pasan como prop
+      // En un caso real, estas actividades vendrían de una API o de un contexto
+      setActivities([
+        {
+          id: '1',
+          title: 'Facturación clientes',
+          description: 'Generar la factura de daystore cada 1er día del mes en el portal web del sat y enviarla por correo',
+          category: 'Administrativo',
+          frequency: 'Mensual (Día 1)',
+          duration: '30 minutos',
+          status: 'Programada',
+          lastExecution: '5/1/2025',
+          nextExecution: '6/1/2025'
+        },
+        {
+          id: '2',
+          title: 'Validación hora y fecha y precio de BTC contra USD',
+          description: 'Navegar en internet en google y en la primera página visitar la hora y fecha actuales y luego de que tengas validada la hora y la fecha lo que debes hacer es ingresar a google y buscar el precio actual de BTC contra USDT y consolidar ambos datos e indicar el precio actual con la hora y fecha de BTC',
+          category: 'Investigación',
+          frequency: 'Bajo demanda',
+          duration: 'Variable',
+          status: 'Disponible',
+          lastExecution: '4/27/2025',
+          nextExecution: 'N/A'
+        },
+        {
+          id: '3',
+          title: 'TIPO DE CAMBIOS USD/MXN',
+          description: 'CONSULTAR EN INTERNET E INDICAR EL TIPO DE CAMBIO ACTUAL DEL MXN VS USD',
+          category: 'Investigación',
+          frequency: 'Bajo demanda',
+          duration: 'Variable',
+          status: 'Disponible',
+          lastExecution: '',
+          nextExecution: 'N/A'
+        },
+        {
+          id: '4',
+          title: 'Clima Ciudad de México hoy',
+          description: 'Clima Ciudad de México hoy',
+          category: 'Investigación',
+          frequency: 'Bajo demanda',
+          duration: 'Variable',
+          status: 'Disponible',
+          lastExecution: '',
+          nextExecution: 'N/A'
+        }
+      ]);
+    }
+  }, [initialActivities]);
 
   const handleStartActivity = async (activity: any) => {
     setSelectedActivity(activity);
@@ -54,38 +95,27 @@ const RicaOfficeScreen: React.FC<RicaOfficeScreenProps> = ({ onBack }) => {
     setResult(null);
     
     try {
-      if (activity.id === '2' && activity.title.includes('BTC')) {
-        // Usar el servicio de Ollama para la validación de BTC
-        const ollamaResult = await ollamaService.ricaBtcValidationTask();
-        
-        if (ollamaResult.success) {
-          setResult({
-            success: true,
-            summary: ollamaResult.summary,
-            data: ollamaResult.data,
-            formatted: formatBtcValidationResult(ollamaResult)
-          });
-        } else {
-          setResult({
-            success: false,
-            error: ollamaResult.error || 'No se pudo completar la tarea de validación de BTC',
-            details: ollamaResult.details || []
-          });
-        }
+      // Usar el servicio unificado para ejecutar la actividad
+      const response = await unifiedAgentService.executeActivity({
+        id: activity.id,
+        title: activity.title,
+        description: activity.description,
+        category: activity.category
+      });
+      
+      if (response.success) {
+        setResult({
+          success: true,
+          data: response.data,
+          summary: response.data?.summary || '',
+          formatted: formatActivityResult(response)
+        });
       } else {
-        // Para otras actividades, usar el enfoque existente
-        const prompt = `Actúa como Rica, responsable de finanzas. Necesito que realices la siguiente actividad: 
-        ${activity.title}
-        
-        Descripción detallada: ${activity.description}
-        
-        Por favor, utiliza las herramientas de scraping para buscar la información necesaria y proporciona un resultado detallado y organizado.`;
-        
-        // Ejecutar el agente con el prompt
-        const response = await runAgentPrompt(prompt);
-        
-        // Procesar el resultado
-        setResult(response.result || response);
+        setResult({
+          success: false,
+          error: response.error || 'No se pudo completar la actividad',
+          details: response.details || []
+        });
       }
     } catch (error) {
       console.error('Error al ejecutar la actividad:', error);
@@ -95,6 +125,68 @@ const RicaOfficeScreen: React.FC<RicaOfficeScreenProps> = ({ onBack }) => {
       });
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  // Función para formatear los resultados de cualquier actividad
+  const formatActivityResult = (data: any): string => {
+    if (!data || !data.data) return 'No hay datos disponibles';
+    
+    try {
+      const activityData = data.data;
+      
+      // Si es una actividad de validación de BTC
+      if (activityData.btc_price) {
+        return formatBtcValidationResult(data);
+      } 
+      // Si es una actividad de tipo de cambio
+      else if (activityData.mxn_rate) {
+        return formatExchangeRateResult(data);
+      } 
+      // Si es una actividad del clima
+      else if (activityData.temperature) {
+        return formatWeatherResult(data);
+      }
+      // Para cualquier otro tipo de resultado
+      else {
+        // Intentar construir un formato genérico
+        let result = '';
+        
+        // Añadir resumen si existe
+        if (data.summary || activityData.summary) {
+          result += `📝 Resultado:\n${data.summary || activityData.summary}\n\n`;
+        }
+        
+        // Si hay un plan (para actividades administrativas)
+        if (activityData.plan) {
+          result += `📋 Plan de acción:\n${activityData.plan}\n\n`;
+        }
+        
+        // Si hay resultados de investigación
+        if (activityData.research_results) {
+          result += `🔍 Resultados de investigación:\n${activityData.research_results}\n\n`;
+        }
+        
+        // Si hay un resultado genérico
+        if (activityData.result) {
+          result += `${activityData.result}\n\n`;
+        }
+        
+        // Añadir información de la fuente si existe
+        if (activityData.source) {
+          result += `📊 Fuente: ${activityData.source}\n`;
+        }
+        
+        // Añadir timestamp
+        if (activityData.timestamp) {
+          result += `🕒 Actualización: ${new Date(activityData.timestamp * 1000).toLocaleString()}\n`;
+        }
+        
+        return result || JSON.stringify(activityData, null, 2);
+      }
+    } catch (error) {
+      console.error('Error formateando resultado:', error);
+      return 'Error al formatear los resultados. Datos recibidos pero no pudieron ser procesados correctamente.';
     }
   };
 
@@ -120,8 +212,8 @@ const RicaOfficeScreen: React.FC<RicaOfficeScreenProps> = ({ onBack }) => {
       }
       
       // Añadir el resumen del modelo si está disponible
-      if (data.summary) {
-        result += `\n📝 Análisis:\n${data.summary}`;
+      if (data.summary || data.data.summary) {
+        result += `\n📝 Análisis:\n${data.summary || data.data.summary}`;
       }
       
       return result;
@@ -131,10 +223,78 @@ const RicaOfficeScreen: React.FC<RicaOfficeScreenProps> = ({ onBack }) => {
     }
   };
 
+  // Función para formatear los resultados del tipo de cambio
+  const formatExchangeRateResult = (data: any): string => {
+    if (!data || !data.data) return 'No hay datos disponibles';
+    
+    try {
+      const exchangeData = data.data || {};
+      
+      // Crear un mensaje formateado
+      let result = `💵 Tipo de cambio USD/MXN:\n\n`;
+      result += `1 USD = ${exchangeData.mxn_rate?.toFixed(2) || 'No disponible'} MXN\n`;
+      result += `1 MXN = ${exchangeData.usd_rate?.toFixed(6) || 'No disponible'} USD\n\n`;
+      
+      // Añadir información de la fuente
+      result += `📊 Fuente: ${exchangeData.source || 'No disponible'}\n`;
+      result += `🕒 Actualización: ${exchangeData.timestamp ? new Date(exchangeData.timestamp * 1000).toLocaleString() : 'No disponible'}\n`;
+      
+      // Añadir el resumen del modelo si está disponible
+      if (data.summary || exchangeData.summary) {
+        result += `\n📝 Análisis:\n${data.summary || exchangeData.summary}`;
+      }
+      
+      return result;
+    } catch (error) {
+      console.error('Error formateando resultado de tipo de cambio:', error);
+      return 'Error al formatear los resultados. Datos recibidos pero no pudieron ser procesados correctamente.';
+    }
+  };
+
+  // Función para formatear los resultados del clima
+  const formatWeatherResult = (data: any): string => {
+    if (!data || !data.data) return 'No hay datos disponibles';
+    
+    try {
+      const weatherData = data.data || {};
+      
+      // Crear un mensaje formateado
+      let result = `🌤️ Clima en Ciudad de México:\n\n`;
+      result += `🌡️ Temperatura: ${weatherData.temperature?.toFixed(1) || 'No disponible'}°C\n`;
+      result += `💧 Humedad: ${weatherData.humidity || 'No disponible'}%\n`;
+      result += `🌈 Condición: ${weatherData.condition || 'No disponible'}\n`;
+      
+      if (weatherData.feels_like) {
+        result += `🔆 Sensación térmica: ${weatherData.feels_like.toFixed(1)}°C\n`;
+      }
+      
+      if (weatherData.wind_speed) {
+        result += `💨 Viento: ${weatherData.wind_speed} km/h\n`;
+      }
+      
+      // Añadir información de la fuente
+      result += `\n📊 Fuente: ${weatherData.source || 'No disponible'}\n`;
+      result += `🕒 Actualización: ${weatherData.timestamp ? new Date(weatherData.timestamp * 1000).toLocaleString() : 'No disponible'}\n`;
+      
+      // Añadir el resumen del modelo si está disponible
+      if (data.summary || weatherData.summary) {
+        result += `\n📝 Análisis:\n${data.summary || weatherData.summary}`;
+      }
+      
+      return result;
+    } catch (error) {
+      console.error('Error formateando resultado del clima:', error);
+      return 'Error al formatear los resultados. Datos recibidos pero no pudieron ser procesados correctamente.';
+    }
+  };
+
   const resetActivity = () => {
     setSelectedActivity(null);
     setResult(null);
   };
+
+  // Determinar la inicial del nombre para mostrar en el avatar
+  const userInitial = userName.charAt(0).toUpperCase();
 
   return (
     <View style={styles.container}>
@@ -145,12 +305,12 @@ const RicaOfficeScreen: React.FC<RicaOfficeScreenProps> = ({ onBack }) => {
         </TouchableOpacity>
         
         <View style={styles.headerTitle}>
-          <Text style={styles.title}>Oficina de Rica</Text>
-          <Text style={styles.subtitle}>Finanzas</Text>
+          <Text style={styles.title}>Oficina de {userName}</Text>
+          <Text style={styles.subtitle}>{userRole}</Text>
         </View>
         
-        <View style={styles.agentAvatar}>
-          <Text style={styles.agentAvatarText}>R</Text>
+        <View style={[styles.agentAvatar, { backgroundColor: userColor }]}>
+          <Text style={styles.agentAvatarText}>{userInitial}</Text>
         </View>
       </View>
       
@@ -199,7 +359,7 @@ const RicaOfficeScreen: React.FC<RicaOfficeScreenProps> = ({ onBack }) => {
                 {isProcessing ? (
                   <View style={styles.loadingContainer}>
                     <ActivityIndicator size="large" color="#bd93f9" />
-                    <Text style={styles.loadingText}>El agente Rica está procesando la actividad...</Text>
+                    <Text style={styles.loadingText}>Procesando la actividad...</Text>
                   </View>
                 ) : (
                   result ? (
@@ -234,7 +394,7 @@ const RicaOfficeScreen: React.FC<RicaOfficeScreenProps> = ({ onBack }) => {
             <Text style={styles.sectionTitle}>Actividades Pendientes</Text>
             
             <ScrollView style={styles.activitiesList}>
-              {ricaActivities.map((activity) => (
+              {activities.map((activity) => (
                 <TouchableOpacity 
                   key={activity.id}
                   style={styles.activityCard}
@@ -479,4 +639,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default RicaOfficeScreen; 
+export default UserActivityScreen; 

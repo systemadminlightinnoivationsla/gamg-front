@@ -27,7 +27,6 @@ import { WebViewMessageEvent } from 'react-native-webview/lib/WebViewTypes';
 import { useActivity } from '../contexts';
 import IntelligentScraperUI from '../components/IntelligentScraperUI';
 import { exchangeRateService } from '../services/scrapers/exchangeRateService';
-import RicaOfficeButton from '../components/RicaOfficeButton';
 
 // Definición de interfaces
 interface Collaborator {
@@ -55,7 +54,7 @@ interface Activity {
 interface GamePlayScreenProps {
   onBack: () => void;
   onSelectCollaborator: (collaborator: Collaborator, areaName: string) => void;
-  onOpenRicaOffice: () => void;
+  onOpenUserActivity: (userId?: string) => void; // Actualizado
 }
 
 // Colores para los avatares
@@ -76,7 +75,7 @@ const AVATAR_SIZE = 70;
 const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ 
   onBack, 
   onSelectCollaborator,
-  onOpenRicaOffice
+  onOpenUserActivity // Actualizado
 }) => {
   // Estados
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
@@ -1494,8 +1493,8 @@ Tu respuesta debe contener ÚNICAMENTE los términos de búsqueda, nada más.`
       >
         <SafeAreaView style={styles.safeContainer}>
           <View style={styles.header}>
-            <Text style={styles.title}>{organizationName || 'Mi Organización'}</Text>
-            <Text style={styles.subtitle}>Simulador de Colaboradores</Text>
+            <Text style={styles.title}>{organizationName || 'Light'}</Text>
+            <Text style={styles.subtitle}>Oficina</Text>
           </View>
           
           <View style={styles.gameArea}>
@@ -1538,6 +1537,57 @@ Tu respuesta debe contener ÚNICAMENTE los términos de búsqueda, nada más.`
                 </View>
               );
             })}
+            
+            {/* Cubículos de oficina para Rica, Xander y Spot */}
+            <View style={styles.officesContainer}>
+              {/* Oficina de Rica */}
+              <View style={styles.officeWrapper}>
+                <View style={[styles.officeCubicle, { borderColor: '#50fa7b' }]}>
+                  <TouchableOpacity
+                    style={styles.officeInner}
+                    onPress={() => onOpenUserActivity('rica')}
+                  >
+                    <View style={[styles.officeAvatar, { backgroundColor: '#50fa7b' }]}>
+                      <Text style={styles.officeAvatarText}>R</Text>
+                    </View>
+                    <Text style={styles.officeName}>Rica</Text>
+                    <Text style={styles.officeRole}>Finanzas</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+              
+              {/* Oficina de Xander */}
+              <View style={styles.officeWrapper}>
+                <View style={[styles.officeCubicle, { borderColor: '#bd93f9' }]}>
+                  <TouchableOpacity
+                    style={styles.officeInner}
+                    onPress={() => onOpenUserActivity('xander')}
+                  >
+                    <View style={[styles.officeAvatar, { backgroundColor: '#bd93f9' }]}>
+                      <Text style={styles.officeAvatarText}>X</Text>
+                    </View>
+                    <Text style={styles.officeName}>Xander</Text>
+                    <Text style={styles.officeRole}>Tecnología</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+              
+              {/* Oficina de Spot */}
+              <View style={styles.officeWrapper}>
+                <View style={[styles.officeCubicle, { borderColor: '#ff79c6' }]}>
+                  <TouchableOpacity
+                    style={styles.officeInner}
+                    onPress={() => onOpenUserActivity('spot')}
+                  >
+                    <View style={[styles.officeAvatar, { backgroundColor: '#ff79c6' }]}>
+                      <Text style={styles.officeAvatarText}>S</Text>
+                    </View>
+                    <Text style={styles.officeName}>Spot</Text>
+                    <Text style={styles.officeRole}>Operaciones</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
             
             {/* Icono del Navegador */}
             <TouchableOpacity
@@ -2410,9 +2460,6 @@ Tu respuesta debe contener ÚNICAMENTE los términos de búsqueda, nada más.`
           </View>
         </View>
       </Modal>
-      
-      {/* Botón para la Oficina de Rica */}
-      <RicaOfficeButton onPress={onOpenRicaOffice} />
     </View>
   );
 };
@@ -3753,6 +3800,65 @@ const styles = StyleSheet.create({
     color: '#f8f8f2',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  officesContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    width: '100%',
+    marginVertical: 40,
+    paddingHorizontal: 20,
+  },
+  officeWrapper: {
+    alignItems: 'center',
+    margin: 10,
+  },
+  officeCubicle: {
+    width: 120,
+    height: 150,
+    backgroundColor: 'rgba(40, 42, 54, 0.7)',
+    borderWidth: 2,
+    borderRadius: 10,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 5,
+  },
+  officeInner: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 15,
+  },
+  officeAvatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  officeAvatarText: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#282a36',
+  },
+  officeName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#f8f8f2',
+    marginBottom: 5,
+  },
+  officeRole: {
+    fontSize: 12,
+    color: '#8be9fd',
   },
 });
 

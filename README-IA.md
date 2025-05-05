@@ -1,106 +1,202 @@
-GAMG Frontend - Technical Architecture Documentation
-1. Project Overview
-GAMG Frontend is a mobile application built with React Native and Expo. It provides a gaming platform with authentication, game management, agent interactions, and collaboration features.
-2. Technology Stack
-Framework: React Native 0.73.0 with Expo 50.0.0
-Language: TypeScript 5.3.0
-State Management: React Context API
-Data Persistence: AsyncStorage
-Network Communication: Axios 1.6.5, Socket.io-client 4.7.2
-UI Components: Native React Native components
-Animations: React Native Animated API
-Styling: StyleSheet API
-3. Project Structure
-3.1 Root Directory
-.babelrc: Babel configuration with Expo presets
-App.tsx: Main application entry point
-package.json: Project dependencies and scripts
-tsconfig.json: TypeScript configuration
-3.2 Source Directory (src/)
-screens/: Application screens
-components/: Reusable UI components
-contexts/: Context providers for state management
-services/: API and functionality services
-4. File Organization
-4.1 Screens
-LoginScreen.tsx: User authentication screen
-RegisterScreen.tsx: New user registration
-GameMenuScreen.tsx: Main game navigation hub
-GamePlayScreen.tsx: Actual gameplay interface
-SettingsScreen.tsx: Application settings
-CollaboratorDetailScreen.tsx: Detail view for collaborators
-AgentScreen.tsx: AI agent interface
-4.2 Components
-AgentSearch.tsx: Component for searching agents
-AgentCreator.tsx: Interface for creating new agents
-IntelligentScraperUI.tsx: UI for web scraping functionality
-4.3 Contexts
-AgentContext.tsx: State management for AI agents
-ActivityContext.tsx: State management for user activities
-index.ts: Context exports
-4.4 Services
-api.ts: Core API communication setup
-agentService.ts: Agent-related API interactions
-openRouterService.ts: Integration with external AI services
-scrapers/: Web scraping functionalities
-gamePlayServices/: Game-specific service functions
-5. Architecture Patterns
-5.1 Navigation System
-The application uses a custom screen navigation system implemented in App.tsx. This includes:
-Screen state management
-Animated transitions between screens
-Screen history tracking
-5.2 State Management
-The application uses React Context API for state management:
-AgentContext: Manages AI agent configurations, selection, and operations
-ActivityContext: Manages user activities and their interactions
-5.3 Data Persistence
-Application data is persisted using AsyncStorage:
-Authentication tokens
-User preferences
-Agent configurations
-Activity records
-5.4 API Communication
-Communication with backend services is handled through:
-Axios for RESTful API calls
-Socket.io for real-time communication
-Custom middleware for authentication token management
-6. Key Workflows
-6.1 Authentication Flow
-User enters credentials on LoginScreen
-Credentials are validated against API
-On success, token is stored in AsyncStorage
-User is redirected to GameMenuScreen
-6.2 Game Session Flow
-User selects "Start Game" from GameMenuScreen
-GamePlayScreen is loaded with initial game state
-User interacts with game elements
-Game state updates are managed through contexts
-Session data is persisted as needed
-6.3 Agent Interaction Flow
-User navigates to AgentScreen
-Existing agents are loaded from storage
-User can select, create, or interact with agents
-Agent responses are processed and displayed
-Relevant data is stored for future sessions
-7. UI/UX Implementation
-7.1 Design System
-Custom styled components using React Native's StyleSheet
-Consistent color palette and typography
-Animated transitions for improved user experience
-7.2 Responsive Design
-Dimension-aware layouts
-Adaptive UI elements based on device size
-Cross-platform compatibility
-8. Performance Considerations
-Lazy loading of screen components
-Optimized re-rendering through context design
-Efficient AsyncStorage data management
-9. Security Features
-Token-based authentication
-Secure storage of credentials
-API request/response interceptors
-10. Third-party Integrations
-OpenRouter AI service integration
-Web scraping capabilities
-DateTime picker component
+# GAMG Frontend - Documentación de Arquitectura Técnica
+
+## 1. Visión General del Proyecto
+
+GAMG Frontend es una aplicación móvil desarrollada con React Native y Expo que proporciona una plataforma de juegos con autenticación, gestión de juegos, interacciones con agentes inteligentes y funciones de colaboración. La aplicación está diseñada para ofrecer una experiencia inmersiva con un sistema robusto para la interacción entre usuarios y agentes IA.
+
+## 2. Pila Tecnológica
+
+### Núcleo y Framework
+- **Framework Principal**: React Native 0.73.0 con Expo 50.0.0
+- **Lenguaje de Programación**: TypeScript 5.3.0
+- **Runtime**: Node.js
+
+### Gestión de Estado y Almacenamiento
+- **Gestión de Estado**: React Context API (AgentContext, ActivityContext)
+- **Persistencia de Datos**: AsyncStorage para almacenamiento local
+- **Caché**: Implementación personalizada basada en AsyncStorage
+
+### Comunicación y Redes
+- **Cliente HTTP**: Axios 1.6.5 con interceptores personalizados
+- **Comunicación en Tiempo Real**: Socket.io-client 4.7.2
+- **Configuración API**: Endpoints centralizados y gestión de tokens
+
+### UI/UX
+- **Componentes UI**: Componentes nativos de React Native
+- **Animaciones**: API de Animated de React Native con transiciones personalizadas
+- **Estilos**: API de StyleSheet con sistema de temas
+- **Componentes Avanzados**:
+  - DateTimePicker: @react-native-community/datetimepicker 8.3.0
+  - Modal DateTimePicker: react-native-modal-datetime-picker 18.0.0
+  - WebView: react-native-webview 13.13.5
+  - Gradientes: expo-linear-gradient 14.0.2
+
+## 3. Estructura del Proyecto
+
+### 3.1 Directorio Raíz
+- **.babelrc**: Configuración de Babel con presets de Expo
+- **App.tsx**: Punto de entrada principal con sistema de navegación personalizado
+- **package.json**: Dependencias y scripts del proyecto
+- **tsconfig.json**: Configuración de TypeScript
+
+### 3.2 Directorio Fuente (src/)
+- **screens/**: Pantallas de la aplicación
+- **components/**: Componentes UI reutilizables
+- **contexts/**: Proveedores de contexto para gestión de estado
+- **services/**: Servicios API y funcionalidades
+
+## 4. Organización de Archivos
+
+### 4.1 Pantallas
+- **LoginScreen.tsx**: Pantalla de autenticación de usuarios
+- **RegisterScreen.tsx**: Registro de nuevos usuarios
+- **GameMenuScreen.tsx**: Hub principal de navegación del juego
+- **GamePlayScreen.tsx**: Interfaz de juego activo
+- **SettingsScreen.tsx**: Configuración de la aplicación
+- **CollaboratorDetailScreen.tsx**: Vista detallada de colaboradores
+- **AgentScreen.tsx**: Interfaz de agentes IA
+- **UserActivityScreen.tsx**: Seguimiento de actividades de usuario
+- **RicaOfficeScreen.tsx**: Pantalla específica de oficina
+
+### 4.2 Componentes
+- **AgentSearch.tsx**: Componente para búsqueda de agentes
+- **AgentCreator.tsx**: Interfaz para crear nuevos agentes
+- **IntelligentScraperUI.tsx**: UI para funcionalidad de web scraping
+- **UserActivityButton.tsx**: Botón para acceder a actividades de usuario
+
+### 4.3 Contextos
+- **AgentContext.tsx**: Gestión de estado para agentes IA
+- **ActivityContext.tsx**: Gestión de estado para actividades de usuario
+- **index.ts**: Exportaciones de contextos
+
+### 4.4 Servicios
+- **api.ts**: Configuración central de comunicación API
+- **agentService.ts**: Interacciones API relacionadas con agentes
+- **auth.service.ts**: Servicios de autenticación
+- **openRouterService.ts**: Integración con servicios externos de IA
+- **unifiedAgentService.ts**: Servicio unificado para interacción con agentes
+- **scrapers/**: Funcionalidades de web scraping
+
+## 5. Patrones de Arquitectura
+
+### 5.1 Sistema de Navegación
+La aplicación utiliza un sistema de navegación personalizado implementado en App.tsx que incluye:
+- Gestión de estado de pantallas (`currentScreen`, `previousScreen`)
+- Transiciones animadas entre pantallas utilizando Animated API
+- Seguimiento del historial de pantallas
+- Sistema de navegación basado en cambios de estado
+
+### 5.2 Gestión de Estado
+La aplicación utiliza React Context API para la gestión de estado:
+- **AgentContext**: Gestiona configuraciones de agentes IA, selección y operaciones
+- **ActivityContext**: Gestiona actividades de usuario y sus interacciones
+- Comunicación inter-contextos para operaciones complejas
+
+### 5.3 Persistencia de Datos
+Los datos de la aplicación se persisten utilizando AsyncStorage:
+- Tokens de autenticación
+- Preferencias de usuario
+- Configuraciones de agentes
+- Registros de actividades
+- Sistema de caché para optimizar rendimiento
+
+### 5.4 Comunicación API
+La comunicación con servicios backend se maneja a través de:
+- Axios para llamadas API RESTful con estructura modular
+- Socket.io para comunicación en tiempo real
+- Middleware personalizado para gestión de tokens de autenticación
+- Interceptores para manejo de errores y renovación de tokens
+- Endpoints centralizados en configuración API
+
+### 5.5 Arquitectura de Servicios
+- Servicios modularizados por dominio funcional
+- Patrón de singleton para servicios compartidos
+- Abstracciones para APIs externas
+- Sistema de respuesta unificado
+
+## 6. Flujos Clave
+
+### 6.1 Flujo de Autenticación
+- Usuario ingresa credenciales en LoginScreen
+- Credenciales validadas contra API via auth.service.ts
+- Token almacenado en AsyncStorage tras éxito
+- Usuario redirigido a GameMenuScreen
+- Interceptores de API adjuntan token a solicitudes subsecuentes
+
+### 6.2 Flujo de Sesión de Juego
+- Usuario selecciona "Start Game" desde GameMenuScreen
+- GamePlayScreen se carga con estado inicial de juego
+- Usuario interactúa con elementos del juego
+- Actualizaciones de estado de juego se gestionan a través de contextos
+- Datos de sesión se persisten según sea necesario
+- Comunicación en tiempo real via Socket.io para actualizaciones multiplayer
+
+### 6.3 Flujo de Interacción con Agentes
+- Usuario navega a AgentScreen
+- Agentes existentes cargados desde almacenamiento
+- Usuario puede seleccionar, crear o interactuar con agentes via AgentSearch y AgentCreator
+- Respuestas de agentes procesadas mediante unifiedAgentService.ts
+- Datos relevantes almacenados para sesiones futuras
+- Integración con OpenRouter para capacidades avanzadas de IA
+
+### 6.4 Flujo de Actividades de Usuario
+- Actividades registradas a través de ActivityContext
+- Visualización de actividades en UserActivityScreen
+- Filtrado y categorización de actividades
+- Persistencia de historial de actividades
+
+## 7. Implementación UI/UX
+
+### 7.1 Sistema de Diseño
+- Componentes estilizados personalizados usando StyleSheet de React Native
+- Paleta de colores consistente y tipografía
+- Transiciones animadas para mejor experiencia de usuario
+- Sistema de temas para modo claro/oscuro
+
+### 7.2 Diseño Responsivo
+- Layouts conscientes de dimensiones
+- Elementos UI adaptativos basados en tamaño del dispositivo
+- Compatibilidad multiplataforma (iOS y Android)
+- Orientaciones vertical y horizontal
+
+## 8. Consideraciones de Rendimiento
+
+- Carga perezosa de componentes de pantalla
+- Re-renderizado optimizado a través del diseño de contextos
+- Gestión eficiente de datos de AsyncStorage con sistema de expiración
+- Virtualización de listas largas
+- Memoización de componentes intensivos
+- Optimización de imágenes y assets
+
+## 9. Características de Seguridad
+
+- Autenticación basada en tokens con JWT
+- Almacenamiento seguro de credenciales
+- Interceptores de solicitud/respuesta API
+- Sanitización de entrada de usuario
+- Protección contra ataques XSS
+- Cifrado de datos sensibles en almacenamiento
+
+## 10. Integraciones de Terceros
+
+- Servicio de IA OpenRouter para capacidades de agentes
+- WebView para visualización de contenido web
+- Capacidades de web scraping para recopilación de datos
+- Selector de DateTime para entrada de fechas
+- Integración con servicios de notificación
+
+## 11. Sistema de Gestión de Errores
+
+- Manejo centralizado de errores API
+- Registro y reporte de excepciones
+- Estrategias de reintento para operaciones de red
+- Mensajes de error amigables para el usuario
+- Modo offline con sincronización
+
+## 12. Pruebas y Calidad
+
+- Jest para pruebas unitarias
+- Detox para pruebas E2E
+- Análisis estático con ESLint y TypeScript
+- CI/CD para integración y despliegue continuos
+- Revisiones de código automatizadas

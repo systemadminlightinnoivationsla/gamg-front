@@ -1,7 +1,49 @@
 import axios from 'axios';
 
-// API base URL (change this according to your environment)
-export const API_BASE_URL = 'http://localhost:5000/api';
+// API Configuration
+export const API_BASE_URL = 'http://localhost:8000'; // Puerto por defecto del backend
+
+// Constants for API endpoints
+export const API_ENDPOINTS = {
+  // Agent related endpoints
+  AGENT: {
+    TASK: '/agent/task',
+    CONFIG: '/agent/config'
+  },
+  
+  // Scraping related endpoints
+  SCRAPING: {
+    EXECUTE: '/scraping/execute',
+    ANALYZE: '/scraping/analyze'
+  },
+  
+  // Activity related endpoints
+  ACTIVITY: {
+    EXECUTE: '/activity/execute',
+    LIST: '/activities'
+  },
+  
+  // OpenRouter endpoints (direct usage from frontend)
+  OPENROUTER: {
+    CHAT: 'https://openrouter.ai/api/v1/chat/completions',
+    MODELS: 'https://openrouter.ai/api/v1/models'
+  }
+};
+
+/**
+ * Helper function to get full API URL
+ * @param endpoint API endpoint path
+ * @returns Complete URL
+ */
+export function getApiUrl(endpoint: string): string {
+  // If the endpoint is already a full URL (starts with http), return it as is
+  if (endpoint.startsWith('http')) {
+    return endpoint;
+  }
+  
+  // Otherwise, prepend the base URL
+  return `${API_BASE_URL}${endpoint}`;
+}
 
 // Create axios instance with configuration
 const api = axios.create({

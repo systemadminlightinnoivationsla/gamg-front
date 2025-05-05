@@ -1,126 +1,44 @@
-import axios from 'axios';
-
-// URL base de la API de Ollama (ajusta según tu configuración)
-const OLLAMA_API_URL = 'http://localhost:8000';
-
 /**
- * Servicio para interactuar con la API de Ollama
+ * ESTE ARCHIVO ESTÁ DESHABILITADO
+ * 
+ * Servicio reemplazado por unifiedAgentService.ts
+ * 
+ * Este archivo se mantiene para evitar errores de bundling
+ * pero no se utiliza en la aplicación.
  */
-class OllamaService {
-  /**
-   * Genera texto usando el modelo de Ollama
-   * @param prompt El prompt para el modelo
-   * @param model El modelo a utilizar (por defecto: llama2)
-   * @returns La respuesta generada
-   */
-  async generateText(prompt: string, model: string = 'llama2') {
-    try {
-      const response = await axios.post(`${OLLAMA_API_URL}/generate`, {
-        prompt,
-        model
-      });
-      return response.data;
-    } catch (error) {
-      console.error('Error generando texto con Ollama:', error);
-      throw error;
-    }
-  }
 
-  /**
-   * Ejecuta un agente para realizar una tarea
-   * @param prompt La tarea a realizar
-   * @param tools Las herramientas disponibles para el agente
-   * @param model El modelo a utilizar
-   * @returns El resultado de la ejecución del agente
-   */
-  async runAgent(prompt: string, tools?: any[], model: string = 'llama2') {
-    try {
-      const response = await axios.post(`${OLLAMA_API_URL}/agent`, {
-        prompt,
-        tools,
-        model
-      });
-      return response.data;
-    } catch (error) {
-      console.error('Error ejecutando agente de Ollama:', error);
-      throw error;
-    }
-  }
+import { unifiedAgentService } from './unifiedAgentService';
 
+export const ollamaService = {
   /**
-   * Obtiene la fecha y hora actual
-   * @returns Información sobre la fecha y hora actual
+   * Ejecuta una actividad específica por tipo
+   * @deprecated Use unifiedAgentService.executeActivity instead
    */
-  async getCurrentDateTime() {
-    try {
-      const response = await axios.get(`${OLLAMA_API_URL}/current-datetime`);
-      return response.data;
-    } catch (error) {
-      console.error('Error obteniendo fecha y hora:', error);
-      throw error;
-    }
-  }
-
+  executeActivityByType: async (
+    activityId: string,
+    activityTitle: string,
+    activityDescription: string,
+    activityCategory: string
+  ) => {
+    console.warn('⚠️ ollamaService.executeActivityByType is deprecated. Use unifiedAgentService.executeActivity instead');
+    
+    // Redirigir la llamada al servicio unificado
+    return await unifiedAgentService.executeActivity({
+      id: activityId,
+      title: activityTitle,
+      description: activityDescription,
+      category: activityCategory
+    });
+  },
+  
   /**
-   * Obtiene el precio actual de BTC contra USDT
-   * @returns Información sobre el precio de BTC
+   * Ejecuta un prompt con el agente
+   * @deprecated Use unifiedAgentService.executeWebSearch instead
    */
-  async getBtcPrice() {
-    try {
-      const response = await axios.get(`${OLLAMA_API_URL}/btc-price`);
-      return response.data;
-    } catch (error) {
-      console.error('Error obteniendo precio de BTC:', error);
-      throw error;
-    }
+  runAgent: async (prompt: string, tools?: any[], model?: string) => {
+    console.warn('⚠️ ollamaService.runAgent is deprecated. Use unifiedAgentService.executeWebSearch instead');
+    
+    // Redirigir la llamada al servicio unificado
+    return await unifiedAgentService.executeWebSearch(prompt);
   }
-
-  /**
-   * Valida la hora, fecha y precio de BTC
-   * @returns Información consolidada de fecha, hora y precio de BTC
-   */
-  async validateDatetimeAndBtcPrice() {
-    try {
-      const response = await axios.get(`${OLLAMA_API_URL}/validate-datetime-btc`);
-      return response.data;
-    } catch (error) {
-      console.error('Error validando fecha, hora y precio de BTC:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Ejecuta la tarea específica de validación para el agente Rica
-   * @returns Resultado de la tarea con resumen y datos
-   */
-  async ricaBtcValidationTask() {
-    try {
-      const response = await axios.get(`${OLLAMA_API_URL}/rica/task/btc-validation`);
-      return response.data;
-    } catch (error) {
-      console.error('Error ejecutando tarea de validación de BTC para Rica:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Resume y contextualiza datos utilizando el modelo LLM
-   * @param data Los datos a resumir
-   * @param model El modelo a utilizar
-   * @returns Resumen generado por el modelo
-   */
-  async summarizeData(data: any, model: string = 'llama2') {
-    try {
-      const response = await axios.post(`${OLLAMA_API_URL}/summarize`, {
-        data,
-        model
-      });
-      return response.data;
-    } catch (error) {
-      console.error('Error resumiendo datos con Ollama:', error);
-      throw error;
-    }
-  }
-}
-
-export const ollamaService = new OllamaService(); 
+}; 

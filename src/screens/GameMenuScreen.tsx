@@ -1,13 +1,21 @@
 import React, { useEffect, useRef } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, Animated, Easing } from 'react-native';
 
+interface UserData {
+  name: string;
+  role: string;
+  color: string;
+  activities: any[];
+}
+
 interface GameMenuScreenProps {
   username: string;
   onLogout: () => void;
   onStartGame: () => void;
   onSettings: () => void;
   onAgents: () => void;
-  onOpenRicaOffice: () => void;
+  onOpenUserActivity: (userId?: string) => void;
+  users?: Record<string, UserData>;
 }
 
 const GameMenuScreen: React.FC<GameMenuScreenProps> = ({ 
@@ -16,15 +24,13 @@ const GameMenuScreen: React.FC<GameMenuScreenProps> = ({
   onStartGame,
   onSettings,
   onAgents,
-  onOpenRicaOffice
+  onOpenUserActivity,
+  users = {}
 }) => {
   // Animaciones
   const fadeIn = useRef(new Animated.Value(0)).current;
   const slideUp = useRef(new Animated.Value(30)).current;
   const buttonAnimations = [
-    useRef(new Animated.Value(50)).current,
-    useRef(new Animated.Value(50)).current,
-    useRef(new Animated.Value(50)).current,
     useRef(new Animated.Value(50)).current,
     useRef(new Animated.Value(50)).current,
     useRef(new Animated.Value(50)).current,
@@ -101,51 +107,6 @@ const GameMenuScreen: React.FC<GameMenuScreenProps> = ({
             })
           }}
         >
-          <TouchableOpacity style={styles.menuButton} onPress={onAgents}>
-            <Text style={styles.menuButtonText}>Agentes IA</Text>
-          </TouchableOpacity>
-        </Animated.View>
-        
-        <Animated.View 
-          style={{
-            width: '100%',
-            transform: [{ translateY: buttonAnimations[2] }],
-            opacity: buttonAnimations[2].interpolate({
-              inputRange: [0, 50],
-              outputRange: [1, 0]
-            })
-          }}
-        >
-          <TouchableOpacity style={[styles.menuButton, styles.ricaButton]} onPress={onOpenRicaOffice}>
-            <Text style={styles.menuButtonText}>Oficina de Rica</Text>
-          </TouchableOpacity>
-        </Animated.View>
-        
-        <Animated.View 
-          style={{
-            width: '100%',
-            transform: [{ translateY: buttonAnimations[3] }],
-            opacity: buttonAnimations[3].interpolate({
-              inputRange: [0, 50],
-              outputRange: [1, 0]
-            })
-          }}
-        >
-          <TouchableOpacity style={styles.menuButton}>
-            <Text style={styles.menuButtonText}>Puntuaciones</Text>
-          </TouchableOpacity>
-        </Animated.View>
-        
-        <Animated.View 
-          style={{
-            width: '100%',
-            transform: [{ translateY: buttonAnimations[4] }],
-            opacity: buttonAnimations[4].interpolate({
-              inputRange: [0, 50],
-              outputRange: [1, 0]
-            })
-          }}
-        >
           <TouchableOpacity style={styles.menuButton} onPress={onSettings}>
             <Text style={styles.menuButtonText}>Configuración</Text>
           </TouchableOpacity>
@@ -154,8 +115,8 @@ const GameMenuScreen: React.FC<GameMenuScreenProps> = ({
         <Animated.View 
           style={{
             width: '100%',
-            transform: [{ translateY: buttonAnimations[5] }],
-            opacity: buttonAnimations[5].interpolate({
+            transform: [{ translateY: buttonAnimations[2] }],
+            opacity: buttonAnimations[2].interpolate({
               inputRange: [0, 50],
               outputRange: [1, 0]
             })
@@ -180,7 +141,7 @@ const styles = StyleSheet.create({
   },
   header: {
     alignItems: 'center',
-    marginBottom: 40,
+    marginBottom: 30,
   },
   title: {
     fontSize: 42,
@@ -191,27 +152,26 @@ const styles = StyleSheet.create({
   welcome: {
     fontSize: 24,
     color: '#bd93f9',
-    marginBottom: 20,
+    marginBottom: 10,
     textAlign: 'center',
   },
   menuContainer: {
     width: '100%',
     maxWidth: 300,
+    paddingHorizontal: 15,
   },
   menuButton: {
-    backgroundColor: '#6272a4',
+    backgroundColor: '#44475a',
     paddingVertical: 15,
-    borderRadius: 10,
-    marginBottom: 15,
+    paddingHorizontal: 20,
+    borderRadius: 8,
     alignItems: 'center',
-    shadowColor: '#6272a4',
-    shadowOffset: { width: 0, height: 3 },
+    marginBottom: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
-    shadowRadius: 5,
-    elevation: 5,
-  },
-  ricaButton: {
-    backgroundColor: '#50fa7b',
+    shadowRadius: 4,
+    elevation: 3,
   },
   menuButtonText: {
     color: '#f8f8f2',
@@ -221,13 +181,12 @@ const styles = StyleSheet.create({
   logoutButton: {
     backgroundColor: '#ff5555',
     marginTop: 20,
-    shadowColor: '#ff5555',
   },
   logoutText: {
     color: '#f8f8f2',
     fontSize: 18,
     fontWeight: 'bold',
-  },
+  }
 });
 
 export default GameMenuScreen; 
