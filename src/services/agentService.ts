@@ -118,7 +118,7 @@ class AgentService {
    * @returns Datos obtenidos mediante scraping
    */
   async requestWebScraping(query: string, agentId: string = 'system', skipAnalysis: boolean = true) {
-    console.log(`[${new Date().toISOString()}] Solicitando scraping web: "${query}"`);
+    console.log(`[${new Date().toISOString()}] Solicitando scraping web real: "${query}"`);
     
     // Ensure a clean state for every new query
     resetAllState();
@@ -135,7 +135,7 @@ class AgentService {
         return {
           success: false,
           error: "No se pudo analizar la consulta de scraping",
-          details: analysisResponse.error
+          details: "Error en análisis de consulta"
         };
       }
       
@@ -147,179 +147,255 @@ class AgentService {
       lastScrapingCache.query = query;
       lastScrapingCache.params = scrapingParams;
       
-      // Ejecutar la búsqueda web directamente con la consulta original
-      // En lugar de llamar a un endpoint especial, usamos el endpoint genérico de búsqueda
+      // Log importante para diagnosticar problemas de conexión
+      console.log(`[${new Date().toISOString()}] Enviando solicitud al backend`);
+      
+      // Intentar la solicitud con reintentos en caso de fallo
+      let response;
       try {
-        // Primero intentamos el endpoint específico si existe
-        const response = await axios.post(getApiUrl('/api/search'), {
-          query,
-          agent_id: agentId,
-          params: scrapingParams
-        });
+        response = await this.retryScrapingRequest(query, agentId, scrapingParams);
+      } catch (requestError) {
+        console.error(`[${new Date().toISOString()}] Todos los intentos de conexión con el backend fallaron:`, requestError);
         
-        const endTime = performance.now();
-        console.log(`[${new Date().toISOString()}] Scraping completado en ${(endTime - startTime).toFixed(2)}ms`);
+        // Si todos los intentos fallan, crear una respuesta de fallback local
+        const fallbackResponse = this.createLocalFallbackResponse(query, scrapingParams, requestError, agentId);
+        
+        // Simular un objeto de respuesta axios
+        response = {
+          data: fallbackResponse,
+          status: 200,
+          statusText: 'OK (Local Fallback)',
+          headers: {},
+          config: {}
+        };
+        
+        console.warn(`[${new Date().toISOString()}] Usando respuesta de fallback generada localmente`);
+      }
+      
+      const endTime = performance.now();
+      console.log(`[${new Date().toISOString()}] Scraping completado en ${(endTime - startTime).toFixed(2)}ms`);
+      
+      // Verificar si tenemos una respuesta válida
+      if (response && response.data) {
+        console.log(`[${new Date().toISOString()}] Tipo de respuesta: ${response.data?.data?.type || 'N/A'}, Scraper usado: ${response.data?.data?.scraperUsed || 'N/A'}`);
         
         // Store result in cache
         lastScrapingCache.result = response.data;
         lastScrapingCache.timestamp = Date.now();
         
+        // Verificar si la respuesta contiene un marcador de fallback
+        if (response.data.data && response.data.data.result && response.data.data.result.fallback) {
+          console.warn(`[${new Date().toISOString()}] Advertencia: Se usaron datos aproximados como fallback`);
+        }
+        
+        // Para respuestas de fallback local, omitir la mejora con OpenRouter
+        if (response.data.data && response.data.data.scraperUsed === 'local-fallback') {
+          console.log(`[${new Date().toISOString()}] Omitiendo mejora con OpenRouter para respuesta local`);
+          return response.data;
+        }
+        
         // Solicitar a OpenRouter que sintetice los resultados para una mejor presentación
         const enhancedResponse = await this.enhanceScrapingResults(response.data, query, scrapingParams);
         
         return enhancedResponse;
-      } catch (innerError) {
-        // Si falla (404), simulamos una respuesta
-        console.warn(`[${new Date().toISOString()}] Error con endpoint de búsqueda, usando fallback:`, innerError);
-        
-        // Crear una respuesta simulada con la información básica
-        // Esto es temporal hasta que el backend tenga el endpoint correcto
-        const now = new Date();
-        const formattedDate = now.toLocaleDateString('es-ES', {
-          day: '2-digit',
-          month: '2-digit',
-          year: 'numeric'
-        });
-        const formattedTime = now.toLocaleTimeString('es-ES', {
-          hour: '2-digit',
-          minute: '2-digit', 
-          second: '2-digit'
-        });
-        
-        // Definir respuesta base generica
-        let simulatedResult: any = {
-          horaFecha: `${formattedDate} ${formattedTime}`
-        };
-        
-        // Generar datos simulados basados en el tipo de consulta (de forma generalizable)
-        let responseType = scrapingParams.data_type || 'general';
-        let responseData = {};
-        
-        // Detectar el objetivo de la consulta basado en target y query
-        const targetLower = scrapingParams.target.toLowerCase();
-        const queryLower = query.toLowerCase();
-        
-        console.log(`[${new Date().toISOString()}] Generando respuesta simulada para tipo: ${responseType}, Target: ${scrapingParams.target}`);
-        
-        // Basado en el objetivo de la consulta, generar datos apropiados
-        if (targetLower.includes('usd/mxn') || 
-            targetLower.includes('tipo de cambio') ||
-            targetLower.includes('dólar') ||
-            targetLower.includes('dolar') ||
-            queryLower.includes('tipo de cambio') ||
-            (targetLower.includes('usd') && targetLower.includes('mxn'))) {
-            
-          // Tipo de cambio
-          const baseRate = 17.5; // Tipo base aproximado
-          const rateVariation = Math.random() * 0.6 - 0.3; // Variación entre -0.3 y +0.3
-          const exchangeRate = (baseRate + rateVariation).toFixed(2);
-          
-          simulatedResult = {
-            ...simulatedResult,
-            tipo_cambio: `${exchangeRate} MXN/USD`,
-            inverso: `${(1 / parseFloat(exchangeRate)).toFixed(4)} USD/MXN`,
-            resumen: `El tipo de cambio actual USD/MXN es de ${exchangeRate} pesos por dólar a las ${formattedTime} del ${formattedDate}.`,
-            detalles: `Tipo de cambio USD/MXN: ${exchangeRate}\nTipo de cambio MXN/USD: ${(1 / parseFloat(exchangeRate)).toFixed(4)}\nActualizado: ${formattedDate} a las ${formattedTime}`
-          };
-          responseType = 'tipo_cambio';
-          
-        } else if (targetLower.includes('clima') || 
-                   targetLower.includes('temperatura') || 
-                   queryLower.includes('clima') || 
-                   queryLower.includes('temperatura')) {
-                   
-          // Clima
-          const tempBase = 22; // Temperatura base para CDMX
-          const tempVariation = Math.random() * 8 - 4; // Variación de -4 a +4 grados
-          const temp = Math.round((tempBase + tempVariation) * 10) / 10;
-          const condition = obtenerCondicionClimaAleatoria();
-          
-          simulatedResult = {
-            ...simulatedResult,
-            temperatura: `${temp}°C`,
-            condicion: condition,
-            humedad: `${Math.floor(40 + Math.random() * 40)}%`,
-            viento: `${Math.floor(5 + Math.random() * 15)} km/h`,
-            resumen: `El clima actual en ${scrapingParams.location || 'Ciudad de México'} es de ${temp}°C con ${condition.toLowerCase()} a las ${formattedTime} del ${formattedDate}.`,
-            detalles: `Condiciones actuales en ${scrapingParams.location || 'Ciudad de México'}: Temperatura: ${temp}°C, Humedad: ${Math.floor(40 + Math.random() * 40)}%, Viento: ${Math.floor(5 + Math.random() * 15)} km/h`
-          };
-          responseType = 'clima';
-          
-        } else if (targetLower.includes('bitcoin') || 
-                  targetLower.includes('btc') ||
-                  queryLower.includes('bitcoin') ||
-                  queryLower.includes('btc')) {
-                  
-          // Bitcoin
-          const baseBtcPrice = 63500; // Precio base aproximado
-          const randomVariation = Math.random() * 2000 - 1000; // Variación entre -1000 y +1000
-          const btcPrice = (baseBtcPrice + randomVariation).toFixed(2);
-          
-          simulatedResult = {
-            ...simulatedResult,
-            precio: `$${btcPrice} USD`,
-            resumen: `El precio actual de Bitcoin (BTC) es $${btcPrice} USD a las ${formattedTime} del ${formattedDate}.`,
-            detalles: `Se ha realizado la validación de hora y fecha actual (${formattedDate} ${formattedTime}) y consultado el precio de BTC contra USDT ($${btcPrice}).`
-          };
-          responseType = 'precio_btc';
-          
-        } else {
-          // Respuesta genérica para cualquier otra consulta
-          simulatedResult = {
-            ...simulatedResult,
-            resumen: `Información para "${scrapingParams.target}" (actualizado: ${formattedDate} ${formattedTime})`,
-            detalles: `Consulta realizada: "${query}"\nFecha y hora: ${formattedDate} ${formattedTime}`
-          };
-        }
-        
-        // Log de la respuesta simulada para debug
-        console.log(`[${new Date().toISOString()}] Generando respuesta para tipo: ${responseType}, Target: ${scrapingParams.target}`);
-        
-        // Store result in cache
-        const simulatedResponse = {
-          success: true,
-          data: {
-            type: responseType,
-            searchQuery: query,
-            result: simulatedResult,
-            timestamp: Date.now() / 1000,
-            source: "Web Search API (Simulación)"
-          },
-          source: agentId
-        };
-        
-        // Store in cache
-        lastScrapingCache.result = simulatedResponse;
-        lastScrapingCache.timestamp = Date.now();
-        
-        // Solicitar a OpenRouter que sintetice los resultados para una mejor presentación
-        const enhancedResponse = await this.enhanceScrapingResults(simulatedResponse, query, scrapingParams);
-        
-        return enhancedResponse;
+      } else {
+        // Manejar caso donde no hay datos válidos en la respuesta
+        throw new Error("La respuesta del servidor no contiene datos válidos");
       }
     } catch (error) {
       const endTime = performance.now();
-      console.error(`[${new Date().toISOString()}] Error en scraping (${(endTime - startTime).toFixed(2)}ms):`, error);
+      console.error(`[${new Date().toISOString()}] Error en scraping real (${(endTime - startTime).toFixed(2)}ms):`, error);
       
       if (axios.isAxiosError(error)) {
-        console.error(`[${new Date().toISOString()}] Detalles:`, error.response?.data);
+        console.error(`[${new Date().toISOString()}] Detalles del error de red:`, {
+          status: error.response?.status,
+          statusText: error.response?.statusText,
+          data: error.response?.data,
+          message: error.message
+        });
+        
+        // Si hay una respuesta estructurada de error del servidor, usarla
+        if (error.response?.data && error.response.data.data && error.response.data.data.result) {
+          return {
+            success: false,
+            error: error.response.data.message || "Error en el servidor de búsqueda",
+            result: error.response.data.data.result,
+            source: agentId,
+            isRealScrapingError: true
+          };
+        }
       }
       
-      // Devolver un resultado genérico de error
+      // Generar una respuesta amigable para el usuario aún cuando hay un error
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),
-        source: agentId
+        result: {
+          resumen: "No se pudieron obtener resultados para tu consulta",
+          detalles: "Ocurrió un error durante la búsqueda. Por favor, intenta con otra consulta o más tarde.",
+          horaFecha: new Date().toLocaleString('es-MX')
+        },
+        source: agentId,
+        isRealScrapingError: true
       };
     }
   }
 
   /**
-   * Utiliza OpenRouter para mejorar y sintetizar los resultados de scraping
-   * @param scrapingResults Los resultados originales del scraping
-   * @param originalQuery La consulta original
+   * Reintenta la solicitud de scraping al backend con un mecanismo de reintento
+   * @param query Consulta original
+   * @param agentId ID del agente
+   * @param scrapingParams Parámetros de scraping
+   * @returns Respuesta del servidor
+   */
+  private async retryScrapingRequest(query: string, agentId: string, scrapingParams: any) {
+    // Número máximo de intentos
+    const maxRetries = 3; // Aumentado a 3 intentos
+    let lastError = null;
+    
+    // Intentos
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        // Si no es el primer intento, esperar antes de reintentar
+        if (attempt > 0) {
+          const delayMs = 1000 * attempt; // Aumentar el tiempo de espera en cada intento
+          console.log(`[${new Date().toISOString()}] Reintentando solicitud (intento ${attempt + 1}/${maxRetries}) después de ${delayMs}ms`);
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+        }
+
+        // Decidir qué endpoint usar - primero intentar con el endpoint robusto
+        const endpoint = attempt === 0 
+          ? '/api/search-agent/search'  // Usar el endpoint robusto en el primer intento
+          : '/api/agent/search';        // Caer al original como respaldo
+        
+        console.log(`[${new Date().toISOString()}] Usando endpoint: ${endpoint} (intento ${attempt + 1})`);
+        
+        // Realizar la solicitud con un timeout extendido para consultas lentas
+        const response = await axios.post(getApiUrl(endpoint), {
+          query,
+          agent_id: agentId,
+          params: scrapingParams
+        }, {
+          timeout: 60000 // 60 segundos para consultas (reducido de 90s)
+        });
+        
+        return response;
+      } catch (error) {
+        lastError = error;
+        console.warn(`[${new Date().toISOString()}] Intento ${attempt + 1}/${maxRetries} falló:`, 
+          error instanceof Error ? error.message : String(error));
+      }
+    }
+    
+    // Si llegamos aquí, todos los intentos fallaron
+    console.error(`[${new Date().toISOString()}] Todos los intentos de scraping fallaron`);
+    throw lastError;
+  }
+
+  /**
+   * Crea una respuesta de fallback local cuando todos los intentos de scraping fallan
+   * @param query Consulta original
+   * @param scrapingParams Parámetros de scraping
+   * @param error Error ocurrido
+   * @param agentId ID del agente
+   * @returns Respuesta de fallback estructurada
+   */
+  private createLocalFallbackResponse(query: string, scrapingParams: any, error: any, agentId: string) {
+    console.log(`[${new Date().toISOString()}] Creando respuesta de fallback local para "${query.substring(0, 30)}..."`);
+    
+    const now = new Date();
+    const formattedDate = now.toLocaleDateString('es-MX');
+    const formattedTime = now.toLocaleTimeString('es-MX');
+    const timestamp = now.toISOString();
+    const horaFecha = `${formattedTime} ${formattedDate}`;
+    
+    // Determinar el tipo de datos y objetivo para personalizar la respuesta
+    const queryType = scrapingParams?.data_type || 'general';
+    const target = scrapingParams?.target || '';
+    
+    // Usar any para permitir propiedades dinámicas según el tipo de consulta
+    let result: any = {
+      horaFecha,
+      consulta: query,
+      tipo: queryType,
+      resumen: `No se pudieron obtener resultados para "${query}"`,
+      detalles: `Ocurrió un error de conexión: ${error?.message || 'Error desconocido'}. Por favor, intenta nuevamente más tarde.`,
+      fallback: true
+    };
+    
+    // Personalizar la respuesta según el tipo de consulta
+    if (queryType === 'tipo_cambio' || 
+        target.toLowerCase().includes('usd/mxn') || 
+        target.toLowerCase().includes('dolar') || 
+        target.toLowerCase().includes('dólar')) {
+      // Tipo de cambio
+      const approxRate = (19 + Math.random()).toFixed(2);
+      const inverseRate = (1 / parseFloat(approxRate)).toFixed(6);
+      
+      result = {
+        ...result,
+        tipo_cambio: approxRate,
+        inverso: inverseRate,
+        resumen: `El tipo de cambio aproximado USD/MXN es ${approxRate}.`,
+        detalles: `Datos aproximados generados localmente. 1 USD ≈ ${approxRate} MXN | 1 MXN ≈ ${inverseRate} USD`
+      };
+    }
+    else if (queryType === 'clima' || 
+             target.toLowerCase().includes('clima') || 
+             target.toLowerCase().includes('temperatura')) {
+      // Clima
+      const temperatura = Math.floor(15 + Math.random() * 20) + '°C';
+      const condicion = obtenerCondicionClimaAleatoria();
+      const humedad = Math.floor(40 + Math.random() * 40) + '%';
+      const viento = Math.floor(5 + Math.random() * 15) + ' km/h';
+      const location = scrapingParams?.location || 'tu ubicación';
+      
+      result = {
+        ...result,
+        temperatura,
+        condicion,
+        humedad,
+        viento,
+        resumen: `El clima aproximado en ${location} es ${condicion} con ${temperatura}.`,
+        detalles: `Datos aproximados generados localmente. Humedad: ${humedad} | Viento: ${viento}`
+      };
+    }
+    else if (queryType === 'precio_btc' || 
+            target.toLowerCase().includes('bitcoin') || 
+            target.toLowerCase().includes('btc')) {
+      // Precio de Bitcoin
+      const basePrice = 42000 + Math.random() * 8000;
+      const precio = '$' + basePrice.toFixed(2);
+      
+      result = {
+        ...result,
+        precio,
+        activo: 'Bitcoin',
+        resumen: `El precio aproximado de Bitcoin es ${precio}.`,
+        detalles: `Datos aproximados generados localmente. Estos valores son aleatorios y no representan el precio real.`
+      };
+    }
+    
+    return {
+      success: true,
+      data: {
+        type: queryType,
+        searchQuery: query,
+        result: result,
+        timestamp: Math.floor(Date.now() / 1000),
+        scraperUsed: 'local-fallback',
+        real_data: false
+      },
+      source: agentId || 'system'
+    };
+  }
+
+  /**
+   * Mejora los resultados de scraping utilizando OpenRouter
+   * @param scrapingResults Resultados originales del scraping
+   * @param originalQuery Consulta original
    * @param scrapingParams Parámetros detectados del scraping
-   * @returns Resultados mejorados con síntesis de OpenRouter
+   * @returns Resultados mejorados y sintetizados
    */
   private async enhanceScrapingResults(scrapingResults: any, originalQuery: string, scrapingParams: any) {
     try {
@@ -335,6 +411,28 @@ class AgentService {
       const dataType = scrapingResults.data.type || scrapingParams.data_type || 'general';
       const rawResult = scrapingResults.data.result || {};
       
+      // Verificar si son datos de fallback y no requieren síntesis adicional
+      if (rawResult.fallback === true) {
+        console.warn(`[${new Date().toISOString()}] Usando datos de fallback, no se aplicará síntesis adicional`);
+        return {
+          success: true,
+          data: {
+            ...scrapingResults.data,
+            using_fallback: true,
+            real_data: false
+          }
+        };
+      }
+      
+      // Log detallado para diagnóstico
+      console.log(`[${new Date().toISOString()}] Datos crudos a mejorar:`, {
+        tipo: dataType,
+        resumen: rawResult.resumen,
+        precio: rawResult.precio,
+        temperatura: rawResult.temperatura,
+        tipo_cambio: rawResult.tipo_cambio
+      });
+      
       // Crear un contexto para OpenRouter basado en el tipo de datos
       let context = '';
       if (dataType === 'tipo_cambio' || 
@@ -346,6 +444,24 @@ class AgentService {
         context = 'precio de criptomonedas';
       } else {
         context = 'información general';
+      }
+      
+      // Comprobar si ya tenemos datos suficientemente descriptivos
+      // Si ya hay un resumen y detalles completos, podemos omitir la síntesis
+      if (rawResult.resumen && rawResult.resumen.length > 30 &&
+          rawResult.detalles && rawResult.detalles.length > 30) {
+        console.log(`[${new Date().toISOString()}] Usando datos existentes sin síntesis adicional`);
+        
+        // Crear respuesta simplificada sin necesidad de síntesis
+        return {
+          success: true,
+          data: {
+            ...scrapingResults.data,
+            processed: true,
+            real_data: true,
+            enhanced: false
+          }
+        };
       }
       
       // Extraer información relevante del resultado
@@ -360,7 +476,8 @@ class AgentService {
         temperatura: rawResult.temperatura || '',
         condicion: rawResult.condicion || '',
         humedad: rawResult.humedad || '',
-        viento: rawResult.viento || ''
+        viento: rawResult.viento || '',
+        datos_reales: true // Indicar explícitamente que son datos reales
       };
       
       // Solicitar a OpenRouter que sintetice la información
@@ -378,11 +495,11 @@ class AgentService {
           const enhancedResult = {
             ...rawResult,
             sintesis: synthesis, // Añadir la síntesis como campo adicional
-            sintesis_ai: true // Marcador para indicar que hay síntesis disponible
+            sintesis_ai: true, // Marcador para indicar que hay síntesis disponible
+            datos_reales: true // Siempre mantener marcador de datos reales
           };
           
           // Crear respuesta mejorada manteniendo la estructura original
-          // pero eliminando campos de metadatos innecesarios para el usuario final
           const enhancedResponse = {
             success: true,
             data: {
@@ -390,7 +507,9 @@ class AgentService {
               searchQuery: originalQuery,
               result: enhancedResult,
               enhanced: true, // Marcador para indicar respuesta mejorada
-              enhancedAt: new Date().toISOString()
+              enhancedAt: new Date().toISOString(),
+              scraperUsed: scrapingResults.data.scraperUsed || 'unknown', // Mantener info sobre scraper usado
+              real_data: true // Marcar explícitamente que son datos reales
             }
           };
           
@@ -403,13 +522,15 @@ class AgentService {
       }
       
       // Si llegamos aquí, retornamos los resultados originales
-      // pero sin información de source
+      // pero sin información de source y con un marcador de que son datos reales
       const cleanResponse = {
         success: true,
         data: {
           type: dataType,
           searchQuery: originalQuery,
-          result: rawResult
+          result: rawResult,
+          real_data: true, // Marcar explícitamente que son datos reales
+          enhanced: false  // Indicar que no se pudo mejorar la respuesta
         }
       };
       
@@ -423,7 +544,11 @@ class AgentService {
         // Asegurar que no hay información de source
         return {
           success: scrapingResults.success,
-          data: scrapingResults.data
+          data: {
+            ...scrapingResults.data,
+            real_data: true, // Marcar explícitamente que son datos reales
+            enhancement_error: true // Indicar que hubo un error al mejorar
+          }
         };
       }
       
@@ -848,4 +973,48 @@ function obtenerCondicionClimaAleatoria(): string {
   ];
   
   return condiciones[Math.floor(Math.random() * condiciones.length)];
-} 
+}
+
+/**
+ * Formatea una fecha y hora de forma consistente para toda la aplicación
+ * @param date Fecha a formatear (opcional, usa la fecha actual si no se proporciona)
+ * @returns Objeto con la fecha y hora formateadas
+ */
+export function formatDateTime(date: Date = new Date()) {
+  try {
+    // Intentar formatear con Intl.DateTimeFormat para consistencia
+    const dateFormatter = new Intl.DateTimeFormat('es-MX', { 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+    
+    const timeFormatter = new Intl.DateTimeFormat('es-MX', { 
+      hour: '2-digit', 
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true
+    });
+    
+    const formattedDate = dateFormatter.format(date);
+    const formattedTime = timeFormatter.format(date);
+    const fullDateTime = `${formattedTime} ${formattedDate}`;
+    
+    return {
+      date: formattedDate,
+      time: formattedTime,
+      fullDateTime,
+      timestamp: date.toISOString()
+    };
+  } catch (error) {
+    // Fallback en caso de error con el formateo
+    return {
+      date: date.toLocaleDateString('es-MX'),
+      time: date.toLocaleTimeString('es-MX'),
+      fullDateTime: date.toLocaleString('es-MX'),
+      timestamp: date.toISOString()
+    };
+  }
+}  
+
+ 

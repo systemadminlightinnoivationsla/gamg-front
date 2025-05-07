@@ -1,71 +1,21 @@
 import axios from 'axios';
+import { ScraperJob } from '../contexts/ScraperContext';
 
-// API Configuration
-export const API_BASE_URL = 'http://localhost:8000'; // Puerto por defecto del backend
-
-// Constants for API endpoints
-export const API_ENDPOINTS = {
-  // Agent related endpoints
-  AGENT: {
-    TASK: '/agent/task',
-    CONFIG: '/agent/config'
-  },
-  
-  // Scraping related endpoints
-  SCRAPING: {
-    EXECUTE: '/scraping/execute',
-    ANALYZE: '/scraping/analyze'
-  },
-  
-  // Activity related endpoints
-  ACTIVITY: {
-    EXECUTE: '/activity/execute',
-    LIST: '/activities'
-  },
-  
-  // OpenRouter endpoints (direct usage from frontend)
-  OPENROUTER: {
-    CHAT: 'https://openrouter.ai/api/v1/chat/completions',
-    MODELS: 'https://openrouter.ai/api/v1/models'
-  }
-};
-
-/**
- * Helper function to get full API URL
- * @param endpoint API endpoint path
- * @returns Complete URL
- */
-export function getApiUrl(endpoint: string): string {
-  // If the endpoint is already a full URL (starts with http), return it as is
-  if (endpoint.startsWith('http')) {
-    return endpoint;
-  }
-  
-  // Otherwise, prepend the base URL
-  return `${API_BASE_URL}${endpoint}`;
-}
-
-// Create axios instance with configuration
+// Create Axios instance with default config
 const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: process.env.REACT_APP_API_URL || '/api',
   timeout: 30000,
   headers: {
-    'Content-Type': 'application/json',
-  },
+    'Content-Type': 'application/json'
+  }
 });
 
-// Request interceptor to add token
+// Request interceptor for adding auth token
 api.interceptors.request.use(
-  async (config) => {
-    // Get token from storage
-    try {
-      const token = await localStorage.getItem('authToken');
-      if (token) {
-        config.headers = config.headers || {};
-        config.headers.Authorization = `Bearer ${token}`;
-      }
-    } catch (error) {
-      console.error('Error getting token for request:', error);
+  (config) => {
+    const token = localStorage.getItem('auth_token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
   },
@@ -74,86 +24,144 @@ api.interceptors.request.use(
   }
 );
 
-// Response interceptor to handle errors
+// Response interceptor for handling errors
 api.interceptors.response.use(
-  (response) => {
-    return response;
-  },
+  (response) => response,
   (error) => {
-    if (error.response) {
-      // The request was made and the server responded with a status code
-      // that falls out of the range of 2xx
-      console.error('API Error Response:', {
-        status: error.response.status,
-        statusText: error.response.statusText,
-        data: error.response.data,
-      });
-
-      // Handle 401 Unauthorized errors (token expired or invalid)
-      if (error.response.status === 401) {
-        // You can redirect to login or refresh token here
-        console.warn('Authentication error, redirecting to login...');
-      }
-    } else if (error.request) {
-      // The request was made but no response was received
-      console.error('API No Response Error:', error.request);
-    } else {
-      // Something happened in setting up the request that triggered an Error
-      console.error('API Request Setup Error:', error.message);
+    // Handle token expiration or auth errors
+    if (error.response && (error.response.status === 401 || error.response.status === 403)) {
+      // Clear token and redirect to login
+      localStorage.removeItem('auth_token');
+      window.location.href = '/login';
     }
-    
     return Promise.reject(error);
   }
 );
 
-/**
- * Generic function to handle API responses
- */
-export const handleApiResponse = (response: any) => {
-  if (response && response.data) {
-    return response.data;
+// Scraper API methods
+export const scraperApi = {
+  // Start an exchange rate update job
+  startExchangeRateJob: async (
+    sourceUrl: string,
+    currencyPair: string,
+    targetSheetId?: string
+  ): Promise<{ jobId: string }> => {
+    try {
+      const response = await api.post('/scraper/update_exchange_rate', {
+        source_url: sourceUrl,
+        currency_pair: currencyPair,
+        target_sheet_id: targetSheetId
+      });
+      
+      return response.data;
+    } catch (error) {
+      console.error('API Error - startExchangeRateJob:', error);
+      throw new Error(
+        error.response?.data?.error || 
+        error.message || 
+        'Failed to start exchange rate update'
+      );
+    }
+  },
+  
+  // Start a custom scraper task
+  startCustomTask: async (params: {
+    task: string;
+    source_url: string;
+    [key: string]: any;
+  }): Promise<{ jobId: string }> => {
+    try {
+      const response = await api.post('/scraper/custom', params);
+      return response.data;
+    } catch (error) {
+      console.error('API Error - startCustomTask:', error);
+      throw new Error(
+        error.response?.data?.error || 
+        error.message || 
+        'Failed to start custom scraper task'
+      );
+    }
+  },
+  
+  // Get job status by ID
+  getJobStatus: async (jobId: string): Promise<ScraperJob> => {
+    try {
+      const response = await api.get(`/scraper/jobs/${jobId}`);
+      
+      // Convert API response to ScraperJob format
+      const { status, result, error } = response.data;
+      
+      return {
+        jobId,
+        task: response.data.task || 'unknown',
+        status,
+        result,
+        error
+      };
+    } catch (error) {
+      console.error(`API Error - getJobStatus (${jobId}):`, error);
+      throw new Error(
+        error.response?.data?.error || 
+        error.message || 
+        'Failed to get job status'
+      );
+    }
+  },
+  
+  // Get recent jobs
+  getRecentJobs: async (limit: number = 10): Promise<ScraperJob[]> => {
+    try {
+      const response = await api.get('/scraper/jobs', {
+        params: { limit }
+      });
+      
+      // Convert API response to ScraperJob array
+      return response.data.jobs.map((job: any) => ({
+        jobId: job.jobId,
+        task: job.task,
+        status: job.status,
+        result: job.result,
+        error: job.error?.message,
+        createdAt: job.createdAt
+      }));
+    } catch (error) {
+      console.error('API Error - getRecentJobs:', error);
+      throw new Error(
+        error.response?.data?.error || 
+        error.message || 
+        'Failed to get recent jobs'
+      );
+    }
   }
-  return null;
 };
+
+// API endpoints configuration
+export const API_ENDPOINTS = {
+  AGENT: {
+    TASK: '/agent/task',
+    SEARCH: '/agent/search',
+    ANALYZE: '/agent/analyze'
+  },
+  SCRAPER: {
+    JOBS: '/scraper/jobs',
+    CUSTOM: '/scraper/custom',
+    EXCHANGE_RATE: '/scraper/update_exchange_rate'
+  }
+};
+
+// Base URL for API requests
+export const API_BASE_URL = process.env.REACT_APP_API_URL || '/api';
 
 /**
- * API functions for authentication
+ * Helper function to get the full API URL for an endpoint
+ * @param endpoint The API endpoint path
+ * @returns The complete API URL
  */
-export const authAPI = {
-  login: async (username: string, password: string) => {
-    const response = await api.post('/auth/login', { username, password });
-    return handleApiResponse(response);
-  },
-  
-  register: async (username: string, password: string, email: string) => {
-    const response = await api.post('/auth/register', { username, password, email });
-    return handleApiResponse(response);
-  },
-  
-  getProfile: async () => {
-    const response = await api.get('/auth/profile');
-    return handleApiResponse(response);
-  },
+export const getApiUrl = (endpoint: string): string => {
+  // Remove leading slash if present
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
+  return `${API_BASE_URL}/${cleanEndpoint}`;
 };
 
-/**
- * API functions for agent operations
- */
-export const agentAPI = {
-  runAgent: async (prompt: string) => {
-    const response = await api.post('/agent/run', { prompt });
-    return handleApiResponse(response);
-  },
-  
-  createAgent: async (activityName: string, activityDescription: string) => {
-    const response = await api.post('/agent/create', { activityName, activityDescription });
-    return handleApiResponse(response);
-  },
-  
-  scrape: async (url: string, options = {}) => {
-    const response = await api.post('/agent/scrape', { url, options });
-    return handleApiResponse(response);
-  },
-};
-
+// Export default API
 export default api; 

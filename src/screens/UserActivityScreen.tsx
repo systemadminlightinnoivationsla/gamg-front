@@ -74,12 +74,22 @@ const UserActivityScreen: React.FC<UserActivityScreenProps> = ({
            activity.title?.toLowerCase().includes('clima') ||
            activity.title?.toLowerCase().includes('bitcoin') ||
            activity.title?.toLowerCase().includes('btc') ||
+           activity.title?.toLowerCase().includes('capital') ||
+           activity.title?.toLowerCase().includes('ecuador') ||
+           activity.title?.toLowerCase().includes('investigar') ||
+           activity.title?.toLowerCase().includes('consultar') ||
+           activity.title?.toLowerCase().includes('buscar') ||
            activity.description?.toLowerCase().includes('tipo de cambio') ||
            activity.description?.toLowerCase().includes('usd') ||
            activity.description?.toLowerCase().includes('mxn') ||
            activity.description?.toLowerCase().includes('clima') ||
            activity.description?.toLowerCase().includes('bitcoin') ||
-           activity.description?.toLowerCase().includes('btc')) && 
+           activity.description?.toLowerCase().includes('btc') ||
+           activity.description?.toLowerCase().includes('capital') ||
+           activity.description?.toLowerCase().includes('ecuador') ||
+           activity.description?.toLowerCase().includes('investigar') ||
+           activity.description?.toLowerCase().includes('consultar') ||
+           activity.description?.toLowerCase().includes('buscar')) && 
           activity.category !== 'Investigación'
         ) {
           // Corregir la categoría manteniendo el resto de propiedades
@@ -648,13 +658,25 @@ const UserActivityScreen: React.FC<UserActivityScreenProps> = ({
     
     // Verificar si es una actividad de scraping web conocida
     return (
+      // Finanzas/economía
       title.includes('tipo de cambio') || description.includes('tipo de cambio') ||
       title.includes('usd') || description.includes('usd') ||
       title.includes('mxn') || description.includes('mxn') ||
+      title.includes('btc') || description.includes('btc') ||
+      title.includes('bitcoin') || description.includes('bitcoin') ||
+      
+      // Clima
       title.includes('clima') || description.includes('clima') ||
       title.includes('temperatura') || description.includes('temperatura') ||
-      title.includes('btc') || description.includes('btc') ||
-      title.includes('bitcoin') || description.includes('bitcoin')
+      
+      // Geografía
+      title.includes('capital') || description.includes('capital') ||
+      title.includes('ecuador') || description.includes('ecuador') ||
+      
+      // Verbos de investigación
+      title.includes('investigar') || description.includes('investigar') ||
+      title.includes('consultar') || description.includes('consultar') ||
+      title.includes('buscar') || description.includes('buscar')
     );
   }, []);
 
@@ -736,7 +758,15 @@ const UserActivityScreen: React.FC<UserActivityScreenProps> = ({
         selectedActivity.title.toLowerCase().includes('clima') ||
         selectedActivity.title.toLowerCase().includes('bitcoin') ||
         selectedActivity.title.toLowerCase().includes('btc') ||
-        selectedActivity.description?.toLowerCase().includes('consultar');
+        selectedActivity.title.toLowerCase().includes('capital') ||
+        selectedActivity.title.toLowerCase().includes('ecuador') ||
+        selectedActivity.title.toLowerCase().includes('investigar') ||
+        selectedActivity.title.toLowerCase().includes('buscar') ||
+        selectedActivity.description?.toLowerCase().includes('consultar') ||
+        selectedActivity.description?.toLowerCase().includes('investigar') ||
+        selectedActivity.description?.toLowerCase().includes('buscar') ||
+        selectedActivity.description?.toLowerCase().includes('capital') ||
+        selectedActivity.description?.toLowerCase().includes('ecuador');
       
       let response;
       
