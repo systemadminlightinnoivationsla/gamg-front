@@ -3,12 +3,12 @@
 
 // Constantes
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
-let OPENROUTER_API_KEY = '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';
+let OPENROUTER_API_KEY = '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';
 const MODEL = 'deepseek/deepseek-chat-v3-0324:free';
 
 // Sistema de rotación de API keys
 const API_KEYS = [
-  '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', // Key principal
+  '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', // Key principal
   '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', // Key secundaria
   // Añadir aquí más API keys como fallback
   // 'sk-or-v1-tu-tercera-api-key-aqui',
