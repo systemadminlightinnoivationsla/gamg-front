@@ -749,9 +749,11 @@ Provide the answer in a structured format with clear labels.`;
   // Add a new method to initialize server connections
   async initializeServerConnection(): Promise<boolean> {
     try {
+      console.log('Initializing server connection...');
       const connected = await scrapingApiService.initialize();
       
       if (connected) {
+        console.log('Server connection initialized successfully');
         // Register progress listener
         this.serverProgressCallback = (progress) => {
           this.reportProgress(progress.step, progress.message, progress.progress / 100);

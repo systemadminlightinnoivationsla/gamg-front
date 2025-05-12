@@ -2,6 +2,9 @@ import axios from 'axios';
 // Using require for socket.io-client to avoid Expo bundling issues
 // @ts-ignore
 const io = require('socket.io-client');
+
+// Fix to import socket.io-client correctly
+import { io as socketIO } from 'socket.io-client';
 import { Platform } from 'react-native';
 import * as Device from 'expo-device';
 
@@ -62,7 +65,7 @@ export const scrapingApiService = {
       
       // Initialize WebSocket connection
       if (!socket) {
-        socket = io(WS_URL, {
+        socket = socketIO(WS_URL, {
           transports: ['websocket'],
           reconnection: true,
           reconnectionAttempts: 5,

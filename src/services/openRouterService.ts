@@ -1,19 +1,100 @@
-// Reemplazar la importación de axios
-// import axios from 'axios';
-
-// Constantes
+// Configuración de la API
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
-let OPENROUTER_API_KEY = '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';
-const MODEL = 'deepseek/deepseek-chat-v3-0324:free';
+const MODEL = 'openai/gpt-3.5-turbo';
 
-// Sistema de rotación de API keys
-const API_KEYS = [
-  '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', // Key principal
-  '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', // Key secundaria
-  // Añadir aquí más API keys como fallback
-  // 'sk-or-v1-tu-tercera-api-key-aqui',
+// Interfaces
+interface ApiKeyInfo {
+  key: string;
+  lastUsed: number;
+  usageCount: number;
+  rateLimitReset?: number;
+  isValid: boolean;
+}
+
+// Estado global
+const API_KEYS: ApiKeyInfo[] = [];
+let currentKeyIndex = 0;
+
+// Funciones de gestión de API keys
+export const addApiKey = (newKey: string): void => {
+  if (!API_KEYS.some(info => info.key === newKey)) {
+    API_KEYS.push({
+      key: newKey,
+      lastUsed: 0,
+      usageCount: 0,
+      isValid: true
+    });
+    console.log(`🔑 API key añadida. Total de keys: ${API_KEYS.length}`);
+  }
+};
+
+export const getApiKeys = (): string[] => {
+  return API_KEYS.map(info => info.key);
+};
+
+export const areApiKeysConfigured = (): boolean => {
+  return API_KEYS.length > 0;
+};
+
+export const getApiKeysStatus = (): {
+  totalKeys: number;
+  validKeys: number;
+  currentKey: string;
+  usageCount: number;
+} => {
+  if (API_KEYS.length === 0) {
+    return {
+      totalKeys: 0,
+      validKeys: 0,
+      currentKey: '',
+      usageCount: 0
+    };
+  }
+
+  const currentKey = API_KEYS[currentKeyIndex];
+  return {
+    totalKeys: API_KEYS.length,
+    validKeys: API_KEYS.filter(k => k.isValid).length,
+    currentKey: currentKey.key.substring(0, 8) + '...',
+    usageCount: currentKey.usageCount
+  };
+};
+
+export const getOpenRouterApiKey = (): string => {
+  if (API_KEYS.length === 0) {
+    throw new Error('No hay API keys configuradas');
+  }
+  return API_KEYS[currentKeyIndex].key;
+};
+
+export const setOpenRouterApiKey = (newApiKey: string, addToRotation: boolean = true): void => {
+  if (addToRotation) {
+    addApiKey(newApiKey);
+  }
+  
+  // Encontrar el índice de la nueva clave en el array de API_KEYS
+  const keyIndex = API_KEYS.findIndex(info => info.key === newApiKey);
+  if (keyIndex !== -1) {
+    currentKeyIndex = keyIndex;
+  }
+};
+
+// Inicialización
+const DEFAULT_API_KEYS = [
+  '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', // Nueva key principal
+  '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', // Key secundaria
+  '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', // Key terciaria
 ];
-let CURRENT_KEY_INDEX = 0;
+
+export const initializeApiKeys = (): void => {
+  if (API_KEYS.length === 0) {
+    console.log('🔑 Inicializando API keys por defecto...');
+    DEFAULT_API_KEYS.forEach(key => addApiKey(key));
+  }
+};
+
+// Inicializar las API keys por defecto
+initializeApiKeys();
 
 // Configuración de fallback
 let USE_FALLBACK_SERVICE = false; // Flag para habilitar el servicio de fallback
@@ -35,8 +116,7 @@ export interface WorkflowMessage {
 export const resetRateLimitState = (): void => {
   RATE_LIMIT_COUNT = 0;
   USE_FALLBACK_SERVICE = false;
-  CURRENT_KEY_INDEX = 0; // Volver a la key principal
-  OPENROUTER_API_KEY = API_KEYS[CURRENT_KEY_INDEX];
+  currentKeyIndex = 0; // Volver a la key principal
   console.log('🔄 Estado de rate limit y API key reiniciados');
 };
 
@@ -45,38 +125,28 @@ export const resetRateLimitState = (): void => {
  * @returns true si se pudo rotar a una nueva key, false si no hay más keys disponibles
  */
 function rotateApiKey(): boolean {
-  const nextIndex = CURRENT_KEY_INDEX + 1;
+  if (API_KEYS.length <= 1) return false;
   
-  // Verificar si hay más keys disponibles
-  if (nextIndex < API_KEYS.length) {
-    CURRENT_KEY_INDEX = nextIndex;
-    OPENROUTER_API_KEY = API_KEYS[CURRENT_KEY_INDEX];
-    console.log(`🔑 Rotando a API key #${nextIndex + 1}`);
-    return true;
+  const currentKey = API_KEYS[currentKeyIndex];
+  currentKey.isValid = false;
+  console.log(`🔄 Rotando API key. Uso actual: ${currentKey.usageCount}`);
+  
+  // Encontrar la siguiente key válida
+  let attempts = 0;
+  while (attempts < API_KEYS.length) {
+    currentKeyIndex = (currentKeyIndex + 1) % API_KEYS.length;
+    const nextKey = API_KEYS[currentKeyIndex];
+    
+    if (nextKey.isValid) {
+      console.log(`✅ Nueva API key seleccionada. Uso: ${nextKey.usageCount}`);
+      return true;
+    }
+    attempts++;
   }
   
-  console.log('⚠️ No hay más API keys disponibles para rotar');
+  console.error('❌ No hay API keys válidas disponibles');
   return false;
 }
-
-/**
- * Añade una nueva API key al sistema de rotación
- */
-export const addApiKey = (newKey: string): void => {
-  if (!API_KEYS.includes(newKey)) {
-    API_KEYS.push(newKey);
-    console.log(`✅ Nueva API key añadida. Total de keys: ${API_KEYS.length}`);
-  } else {
-    console.log('⚠️ La API key ya existe en el sistema');
-  }
-};
-
-/**
- * Obtiene todas las API keys configuradas actualmente
- */
-export const getApiKeys = (): string[] => {
-  return [...API_KEYS]; // Devolver copia para evitar modificaciones externas
-};
 
 /**
  * Verifica si un error es de rate limit
@@ -109,40 +179,6 @@ const handleRateLimitError = (error: any): void => {
 };
 
 /**
- * Obtiene la clave API de OpenRouter actual
- */
-export const getOpenRouterApiKey = (): string => {
-  return OPENROUTER_API_KEY;
-};
-
-/**
- * Establece una nueva clave API de OpenRouter
- * @param newApiKey Nueva clave API
- * @param addToRotation Si es true, también agrega la clave al sistema de rotación
- */
-export const setOpenRouterApiKey = (newApiKey: string, addToRotation: boolean = true): void => {
-  console.log('🔑 Actualizando API key de OpenRouter');
-  
-  // Establecer como clave actual
-  OPENROUTER_API_KEY = newApiKey;
-  
-  // Añadir al sistema de rotación si se solicita
-  if (addToRotation) {
-    addApiKey(newApiKey);
-    
-    // Encontrar el índice de la nueva clave en el array de API_KEYS
-    const keyIndex = API_KEYS.indexOf(newApiKey);
-    if (keyIndex !== -1) {
-      CURRENT_KEY_INDEX = keyIndex;
-    }
-  }
-  
-  // Resetear estado de fallback
-  USE_FALLBACK_SERVICE = false;
-  RATE_LIMIT_COUNT = 0;
-};
-
-/**
  * Valida la clave API de OpenRouter y devuelve información de validación
  * @param apiKey Clave API opcional. Si no se proporciona, usará la clave actual.
  * @returns Objeto con información de validación
@@ -151,15 +187,15 @@ export const validateOpenRouterApiKey = async (apiKey?: string): Promise<{
   isValid: boolean;
   message: string;
 }> => {
-  const keyToTest = apiKey || OPENROUTER_API_KEY;
+  const keyToTest = apiKey || getOpenRouterApiKey();
   
   try {
     // Guardar la clave API actual
-    const previousKey = OPENROUTER_API_KEY;
+    const previousKey = getOpenRouterApiKey();
     
     // Establecer temporalmente la clave a validar
     if (apiKey) {
-      OPENROUTER_API_KEY = apiKey;
+      setOpenRouterApiKey(apiKey);
     }
     
     // Verificar la clave API
@@ -167,7 +203,7 @@ export const validateOpenRouterApiKey = async (apiKey?: string): Promise<{
     
     // Restaurar la clave API original si se proporcionó una nueva
     if (apiKey) {
-      OPENROUTER_API_KEY = previousKey;
+      setOpenRouterApiKey(previousKey);
     }
     
     if (result.isValid) {
@@ -416,12 +452,16 @@ async function callOpenRouterWithTimeout<T>(
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   
   try {
+    console.log('🔑 Using API key:', getOpenRouterApiKey());
     const response = await fetch(OPENROUTER_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-        'HTTP-Referer': 'https://gamg-app.com'
+        'Authorization': `Bearer ${getOpenRouterApiKey()}`,
+        'HTTP-Referer': 'https://gamg-app.com',
+        'X-Title': 'GAMG App',
+        'OpenAI-Organization': 'org-123456789', // Add organization ID if available
+        'OpenAI-Project': 'proj-123456789' // Add project ID if available
       },
       body: JSON.stringify({
         model: MODEL,
@@ -438,6 +478,21 @@ async function callOpenRouterWithTimeout<T>(
       const errorText = await response.text();
       const errorData = tryParseJson(errorText);
       
+      // Log detailed error information
+      console.error('OpenRouter API Error:', {
+        status: response.status,
+        statusText: response.statusText,
+        error: errorData,
+        headers: {
+          'content-type': response.headers.get('content-type'),
+          'authorization': response.headers.get('authorization') ? 'Bearer [REDACTED]' : undefined,
+          'x-request-id': response.headers.get('x-request-id'),
+          'x-ratelimit-limit': response.headers.get('x-ratelimit-limit'),
+          'x-ratelimit-remaining': response.headers.get('x-ratelimit-remaining'),
+          'x-ratelimit-reset': response.headers.get('x-ratelimit-reset')
+        }
+      });
+      
       // Detectar error específico de rate limit
       const isRateLimit = response.status === 429 || 
                          errorText.toLowerCase().includes('rate limit') ||
@@ -446,6 +501,15 @@ async function callOpenRouterWithTimeout<T>(
       if (isRateLimit) {
         handleRateLimitError({ message: errorData?.error?.message || 'Rate limit exceeded' });
         return await callFallbackService<T>(messages, options);
+      }
+      
+      // Handle authentication errors
+      if (response.status === 401) {
+        console.error('Authentication error with OpenRouter API. Attempting to rotate API key...');
+        if (rotateApiKey()) {
+          // Retry with new API key
+          return callOpenRouterWithTimeout<T>(messages, options, timeoutMs);
+        }
       }
       
       throw new Error(`Error HTTP: ${response.status} ${response.statusText} - ${errorText}`);
@@ -1772,81 +1836,188 @@ export const checkOpenRouterApiKey = async (): Promise<{
   isValid: boolean;
   error?: string;
   models?: string[];
+  details?: {
+    statusCode?: number;
+    errorType?: string;
+    message?: string;
+    headers?: Record<string, string>;
+    usageInfo?: {
+      currentKey: string;
+      usageCount: number;
+      totalKeys: number;
+      validKeys: number;
+    };
+  };
 }> => {
   try {
-    console.log('🔄 Verificando API key de OpenRouter...');
-    
-    // Hacer una petición simple para validar la API key
+    if (API_KEYS.length === 0) {
+      return {
+        isValid: false,
+        error: 'No hay API keys configuradas',
+        details: {
+          errorType: 'no_keys',
+          message: 'Por favor, añade al menos una API key'
+        }
+      };
+    }
+
+    const currentKey = API_KEYS[currentKeyIndex];
+    console.log('🔑 Verificando API key de OpenRouter...', {
+      keyLength: currentKey.key.length,
+      keyPrefix: currentKey.key.substring(0, 8) + '...',
+      timestamp: new Date().toISOString(),
+      usageCount: currentKey.usageCount,
+      totalKeys: API_KEYS.length,
+      validKeys: API_KEYS.filter(k => k.isValid).length
+    });
+
     const response = await fetch(OPENROUTER_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-        'HTTP-Referer': 'https://gamg-app.com'
+        'Authorization': `Bearer ${getOpenRouterApiKey()}`,
+        'HTTP-Referer': 'https://lightinnovationlab.com',
+        'X-Title': 'Light Innovation Lab'
       },
       body: JSON.stringify({
         model: MODEL,
         messages: [
           {
-            role: 'system',
-            content: 'Responde con la palabra "OK".'
-          },
-          {
             role: 'user',
-            content: 'Test de conexión'
+            content: '2+2'
           }
         ],
-        max_tokens: 5
+        max_tokens: 10
       })
     });
 
-    // Si hay error HTTP, la API key podría ser inválida
+    const responseData = await response.json();
+    
+    // Actualizar información de uso
+    currentKey.lastUsed = Date.now();
+    currentKey.usageCount++;
+    
+    // Log detailed response information
+    console.log('📡 OpenRouter API Response:', {
+      status: response.status,
+      statusText: response.statusText,
+      headers: {
+        'content-type': response.headers.get('content-type'),
+        'x-request-id': response.headers.get('x-request-id'),
+        'x-ratelimit-limit': response.headers.get('x-ratelimit-limit'),
+        'x-ratelimit-remaining': response.headers.get('x-ratelimit-remaining'),
+        'x-ratelimit-reset': response.headers.get('x-ratelimit-reset')
+      },
+      usageInfo: {
+        currentKey: currentKey.key.substring(0, 8) + '...',
+        usageCount: currentKey.usageCount,
+        totalKeys: API_KEYS.length,
+        validKeys: API_KEYS.filter(k => k.isValid).length
+      }
+    });
+
     if (!response.ok) {
+      const errorDetails = {
+        statusCode: response.status,
+        errorType: responseData.error?.type || 'unknown',
+        message: responseData.error?.message || 'Unknown error occurred',
+        headers: {
+          'content-type': response.headers.get('content-type') || '',
+          'x-request-id': response.headers.get('x-request-id') || '',
+          'x-ratelimit-limit': response.headers.get('x-ratelimit-limit') || '',
+          'x-ratelimit-remaining': response.headers.get('x-ratelimit-remaining') || '',
+          'x-ratelimit-reset': response.headers.get('x-ratelimit-reset') || ''
+        },
+        usageInfo: {
+          currentKey: currentKey.key.substring(0, 8) + '...',
+          usageCount: currentKey.usageCount,
+          totalKeys: API_KEYS.length,
+          validKeys: API_KEYS.filter(k => k.isValid).length
+        }
+      };
+
+      // Handle specific error cases
+      if (response.status === 401) {
+        console.error('🔒 Authentication Error:', errorDetails);
+        currentKey.isValid = false;
+        
+        // Intentar rotar a otra key
+        if (rotateApiKey()) {
+          return checkOpenRouterApiKey(); // Reintentar con la nueva key
+        }
+        
+        return {
+          isValid: false,
+          error: 'API key inválida o expirada',
+          details: errorDetails
+        };
+      } else if (response.status === 429) {
+        console.error('⏰ Rate Limit Error:', errorDetails);
+        const resetTime = response.headers.get('x-ratelimit-reset');
+        if (resetTime) {
+          currentKey.rateLimitReset = parseInt(resetTime) * 1000;
+        }
+        
+        // Intentar rotar a otra key
+        if (rotateApiKey()) {
+          return checkOpenRouterApiKey(); // Reintentar con la nueva key
+        }
+        
+        return {
+          isValid: false,
+          error: 'Límite de solicitudes excedido',
+          details: errorDetails
+        };
+      }
+
+      console.error('❌ API Error:', errorDetails);
       return {
         isValid: false,
-        error: `Error HTTP: ${response.status} ${response.statusText}`
+        error: `Error en la API: ${responseData.error?.message || 'Error desconocido'}`,
+        details: errorDetails
       };
     }
 
-    const data = await response.json();
-    
-    // Si hay un error específico de la API
-    if (data.error) {
-      return {
-        isValid: false,
-        error: data.error.message || 'Error desconocido de OpenRouter API'
-      };
-    }
-
-    // Si no hay 'choices' en la respuesta, algo está mal
-    if (!data.choices || !Array.isArray(data.choices)) {
-      return {
-        isValid: false,
-        error: 'Respuesta de API con formato inesperado'
-      };
-    }
-
-    // Verificar si se recibió la respuesta esperada
-    const content = data.choices[0]?.message?.content;
-    
-    console.log('✅ API key de OpenRouter validada correctamente');
-    
-    // Extraer información de modelos disponibles si existe
-    const availableModels = data.available_models || [];
+    // Success case
+    console.log('✅ API key válida', {
+      usageInfo: {
+        currentKey: currentKey.key.substring(0, 8) + '...',
+        usageCount: currentKey.usageCount,
+        totalKeys: API_KEYS.length,
+        validKeys: API_KEYS.filter(k => k.isValid).length
+      }
+    });
     
     return {
       isValid: true,
-      models: availableModels.map((model: any) => model.id || model.name || model)
+      models: responseData.models || [],
+      details: {
+        usageInfo: {
+          currentKey: currentKey.key.substring(0, 8) + '...',
+          usageCount: currentKey.usageCount,
+          totalKeys: API_KEYS.length,
+          validKeys: API_KEYS.filter(k => k.isValid).length
+        }
+      }
     };
-    
-  } catch (error: any) {
+  } catch (error) {
     console.error('❌ Error al verificar API key:', error);
     return {
       isValid: false,
-      error: error.message || String(error)
+      error: error instanceof Error ? error.message : 'Error desconocido al verificar la API key',
+      details: {
+        errorType: 'network_error',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        usageInfo: {
+          currentKey: API_KEYS[currentKeyIndex]?.key.substring(0, 8) + '...',
+          usageCount: API_KEYS[currentKeyIndex]?.usageCount || 0,
+          totalKeys: API_KEYS.length,
+          validKeys: API_KEYS.filter(k => k.isValid).length
+        }
+      }
     };
   }
-}; 
+};
 
 /**
  * Valida el resultado de búsqueda contra la actividad original

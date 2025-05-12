@@ -31,6 +31,7 @@ import { WebScraper } from '../services/scrapers/webScraper';
 import { modernScraper, defaultScraperConfig } from '../services/scrapers/modernScraper';
 import { scrapingController } from '../services/scrapers/scrapingController';
 import { scrapingApiService } from '../services/scrapingApiService';
+import { checkOpenRouterApiKey, initializeApiKeys, areApiKeysConfigured, getApiKeysStatus } from '../services/openRouterService';
 
 // Definición de interfaces
 interface Collaborator {
@@ -92,6 +93,18 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
   const [isSearchSectionVisible, setIsSearchSectionVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Activity[]>([]);
+  const [isValidatorSectionVisible, setIsValidatorSectionVisible] = useState(false);
+  const [isValidating, setIsValidating] = useState(false);
+  const [apiValidationResult, setApiValidationResult] = useState<{
+    isValid: boolean;
+    error?: string;
+    details?: {
+      statusCode?: number;
+      errorType?: string;
+      message?: string;
+      headers?: Record<string, string>;
+    };
+  } | null>(null);
   
   // Estados para el navegador web
   const [isWebViewOpen, setIsWebViewOpen] = useState(false);
@@ -204,6 +217,30 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
   // First add a state variable to track whether result has been validated
   const [isResultValidated, setIsResultValidated] = useState(false);
   
+  const [apiKeysStatus, setApiKeysStatus] = useState<{
+    totalKeys: number;
+    validKeys: number;
+    currentKey: string;
+    usageCount: number;
+  }>({
+    totalKeys: 0,
+    validKeys: 0,
+    currentKey: '',
+    usageCount: 0
+  });
+
+  const [apiKeyStatus, setApiKeyStatus] = useState({
+    totalKeys: 0,
+    validKeys: 0,
+    currentKey: '',
+    usageCount: 0
+  });
+
+  useEffect(() => {
+    initializeApiKeys();
+    setApiKeyStatus(getApiKeysStatus());
+  }, []);
+
   // Cargar datos al inicio
   useEffect(() => {
     const loadGameData = async () => {
@@ -2160,6 +2197,48 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
     }
   };
 
+  // Función para validar la API de OpenRouter
+  const validateOpenRouterApi = async () => {
+    setIsValidating(true);
+    setApiValidationResult(null);
+    
+    try {
+      if (!areApiKeysConfigured()) {
+        setApiValidationResult({
+          isValid: false,
+          error: 'No hay API keys configuradas',
+          details: {
+            errorType: 'no_keys',
+            message: 'Por favor, añade al menos una API key'
+          }
+        });
+        return;
+      }
+
+      const result = await checkOpenRouterApiKey();
+      setApiValidationResult(result);
+      setApiKeysStatus(getApiKeysStatus());
+      
+      if (!result.isValid) {
+        console.error('❌ API Validation Error:', result);
+      } else {
+        console.log('✅ API Validation Success:', result);
+      }
+    } catch (error) {
+      console.error('❌ Error during API validation:', error);
+      setApiValidationResult({
+        isValid: false,
+        error: error instanceof Error ? error.message : 'Error desconocido',
+        details: {
+          errorType: 'validation_error',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        }
+      });
+    } finally {
+      setIsValidating(false);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <LinearGradient
@@ -2280,9 +2359,12 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
                 <TouchableOpacity
                   style={[
                     styles.navButton,
-                    !isSearchSectionVisible && styles.activeNavButton
+                    !isSearchSectionVisible && !isValidatorSectionVisible && styles.activeNavButton
                   ]}
-                  onPress={() => setIsSearchSectionVisible(false)}
+                  onPress={() => {
+                    setIsSearchSectionVisible(false);
+                    setIsValidatorSectionVisible(false);
+                  }}
                 >
                   <Text style={styles.navButtonText}>Lista de Actividades</Text>
                 </TouchableOpacity>
@@ -2294,12 +2376,26 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
                   ]}
                   onPress={() => {
                     setIsSearchSectionVisible(true);
+                    setIsValidatorSectionVisible(false);
                     // Inicializar los resultados de búsqueda con las actividades filtradas
                     setSearchQuery('');
                     setSearchResults(filteredActivities);
                   }}
                 >
                   <Text style={styles.navButtonText}>Búsqueda de Dato</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.navButton,
+                    isValidatorSectionVisible && styles.activeNavButton
+                  ]}
+                  onPress={() => {
+                    setIsSearchSectionVisible(false);
+                    setIsValidatorSectionVisible(true);
+                  }}
+                >
+                  <Text style={styles.navButtonText}>Validador</Text>
                 </TouchableOpacity>
               </View>
               
@@ -2340,6 +2436,53 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
                       </ScrollView>
                     )}
                   </View>
+                </View>
+              ) : isValidatorSectionVisible ? (
+                // Sección de validador
+                <View style={styles.validatorSection}>
+                  <Text style={styles.validatorTitle}>Validador de OpenRouter API</Text>
+                  <Text style={styles.validatorDescription}>
+                    Este validador prueba la conexión con la API de OpenRouter enviando una solicitud simple.
+                  </Text>
+                  
+                  <View style={styles.apiKeyStatus}>
+                    <Text style={styles.statusTitle}>Estado de API Keys:</Text>
+                    <Text style={styles.statusText}>Total de keys: {apiKeyStatus.totalKeys}</Text>
+                    <Text style={styles.statusText}>Keys válidas: {apiKeyStatus.validKeys}</Text>
+                    <Text style={styles.statusText}>Key actual: {apiKeyStatus.currentKey}</Text>
+                    <Text style={styles.statusText}>Uso actual: {apiKeyStatus.usageCount}</Text>
+                  </View>
+                  
+                  <TouchableOpacity
+                    style={[
+                      styles.validateButton,
+                      isValidating && styles.disabledButton
+                    ]}
+                    onPress={validateOpenRouterApi}
+                    disabled={isValidating}
+                  >
+                    {isValidating ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <Text style={styles.validateButtonText}>
+                        Validar API
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                  
+                  {apiValidationResult && (
+                    <View style={[
+                      styles.validationResult,
+                      apiValidationResult.isValid ? styles.successResult : styles.errorResult
+                    ]}>
+                      <Text style={styles.validationResultText}>
+                        {apiValidationResult.isValid ? '✅ ' : '❌ '}
+                        {apiValidationResult.isValid 
+                          ? 'API key válida y funcionando correctamente'
+                          : apiValidationResult.details?.message || apiValidationResult.error || 'Error desconocido'}
+                      </Text>
+                    </View>
+                  )}
                 </View>
               ) : (
                 <View style={{flex: 1}}>
@@ -4254,7 +4397,11 @@ const styles = StyleSheet.create({
     marginHorizontal: 5,
   },
   validateButton: {
-    backgroundColor: 'rgba(80, 250, 123, 0.3)',
+    backgroundColor: '#007AFF',
+    padding: 15,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginBottom: 20,
   },
   resultButtonText: {
     color: '#f8f8f2',
@@ -4262,7 +4409,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   disabledButton: {
-    opacity: 0.6,
+    opacity: 0.7,
   },
   validationResultContainer: {
     marginTop: 15,
@@ -4344,6 +4491,71 @@ const styles = StyleSheet.create({
     color: '#f8f8f2',
     fontSize: 12,
     textAlign: 'center',
+  },
+  validatorSection: {
+    flex: 1,
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  validatorContainer: {
+    padding: 20,
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    marginTop: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  validatorTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 10,
+  },
+  validatorDescription: {
+    fontSize: 16,
+    color: '#666',
+    marginBottom: 20,
+  },
+  apiKeyStatus: {
+    backgroundColor: '#f5f5f5',
+    padding: 15,
+    borderRadius: 8,
+    marginBottom: 20,
+  },
+  statusTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 10,
+  },
+  statusText: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 5,
+  },
+  validateButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  validationResult: {
+    padding: 15,
+    borderRadius: 8,
+    marginTop: 10,
+  },
+  successResult: {
+    backgroundColor: '#e6f4ea',
+  },
+  errorResult: {
+    backgroundColor: '#fce8e6',
+  },
+  validationResultText: {
+    fontSize: 14,
+    color: '#333',
   },
 });
 
