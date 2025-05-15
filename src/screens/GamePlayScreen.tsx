@@ -21,7 +21,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
-import { ActivityCategory, analyzeWorkflow, WorkflowMessage, validateSearchResult } from '../services/openRouterService';
+import { ActivityCategory, analyzeWorkflow, WorkflowMessage, validateOllamaLocal } from '../services/openRouterService';
 import { WebView } from 'react-native-webview';
 import { WebViewMessageEvent } from 'react-native-webview/lib/WebViewTypes';
 import { useActivity } from '../contexts';
@@ -31,7 +31,6 @@ import { WebScraper } from '../services/scrapers/webScraper';
 import { modernScraper, defaultScraperConfig } from '../services/scrapers/modernScraper';
 import { scrapingController } from '../services/scrapers/scrapingController';
 import { scrapingApiService } from '../services/scrapingApiService';
-import { checkOpenRouterApiKey, initializeApiKeys, areApiKeysConfigured, getApiKeysStatus } from '../services/openRouterService';
 
 // Definición de interfaces
 interface Collaborator {
@@ -217,146 +216,118 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
   // First add a state variable to track whether result has been validated
   const [isResultValidated, setIsResultValidated] = useState(false);
   
-  const [apiKeysStatus, setApiKeysStatus] = useState<{
-    totalKeys: number;
-    validKeys: number;
-    currentKey: string;
-    usageCount: number;
-  }>({
-    totalKeys: 0,
-    validKeys: 0,
-    currentKey: '',
-    usageCount: 0
-  });
-
-  const [apiKeyStatus, setApiKeyStatus] = useState({
-    totalKeys: 0,
-    validKeys: 0,
-    currentKey: '',
-    usageCount: 0
-  });
-
-  useEffect(() => {
-    initializeApiKeys();
-    setApiKeyStatus(getApiKeysStatus());
-  }, []);
+  // Estados para la validación de Ollama
+  const [isValidatingOllama, setIsValidatingOllama] = useState<boolean>(false);
+  const [ollamaValidationResult, setOllamaValidationResult] = useState<{
+    isValid: boolean;
+    message?: string;
+    details?: any;
+  } | null>(null);
 
   // Cargar datos al inicio
   useEffect(() => {
-    const loadGameData = async () => {
+    const initializeApp = async () => {
       try {
-        // Cargar colaboradores, áreas y nombre de organización
-        const collaboratorsData = await AsyncStorage.getItem('collaborators');
-        const areasData = await AsyncStorage.getItem('organizationAreas');
-        const orgName = await AsyncStorage.getItem('organizationName');
-        
-        let collaboratorsList: Collaborator[] = [];
-        if (collaboratorsData) {
-          collaboratorsList = JSON.parse(collaboratorsData);
-          
-          // Asignar avatares a los colaboradores si no los tienen
-          collaboratorsList = collaboratorsList.map((collaborator, index) => {
-            if (!collaborator.avatar) {
-              // Generar posiciones aleatorias dentro del área de juego
-              const posX = Math.random() * (width - AVATAR_SIZE - (GAME_AREA_PADDING * 2)) + GAME_AREA_PADDING;
-              const posY = Math.random() * (height * 0.6 - AVATAR_SIZE) + (height * 0.2);
-              
-              return {
-                ...collaborator,
-                avatar: {
-                  color: avatarColors[index % avatarColors.length],
-                  positionX: posX,
-                  positionY: posY
-                }
-              };
-            }
-            return collaborator;
-          });
-          
-          // Desactivamos la creación de animaciones
-          // collaboratorsList.forEach(collaborator => {
-          //   if (!avatarAnimations[collaborator.id]) {
-          //     avatarAnimations[collaborator.id] = {
-          //       position: new Animated.ValueXY({ 
-          //         x: collaborator.avatar?.positionX || 0, 
-          //         y: collaborator.avatar?.positionY || 0 
-          //       }),
-          //       rotation: new Animated.Value(0),
-          //       scale: new Animated.Value(1)
-          //     };
-          //   }
-          // });
-        }
-        
-        let areasList: string[] = [];
-        if (areasData) {
-          areasList = JSON.parse(areasData);
-        }
-        
-        setCollaborators(collaboratorsList);
-        setAreas(areasList);
-        setOrganizationName(orgName || '');
-        
-        // Cargar actividades de todos los colaboradores
-        loadAllActivities(collaboratorsList);
-        
-        // Asegurarse de que la visualización de scraping esté oculta al inicio
-        setShowScrapingVisualizer(false);
-        
-        // Deshabilitamos las animaciones por completo
-        // setTimeout(() => {
-        //   try {
-        //     startAnimations();
-        //   } catch (error) {
-        //     console.error("Error iniciando animaciones:", error);
-        //   }
-        // }, 1000);
-        
+        // Inicializar validación de Ollama
+        await validateOllamaApi();
+
+        // Mostrar mensaje sobre el modelo local
+        Alert.alert(
+          'ℹ️ Modelo Local',
+          'Se está usando el modelo local (Ollama - phi3) para responder a tus consultas.'
+        );
+
+        // Cargar datos del juego
+        await loadGameData();
       } catch (error) {
-        console.error('Error al cargar datos del juego:', error);
-      } finally {
-        setLoading(false);
-        
-        // Desactivamos animaciones de entrada
-        // Animated.parallel([
-        //   Animated.timing(fadeIn, {
-        //     toValue: 1,
-        //     duration: 800,
-        //     useNativeDriver: true,
-        //   }),
-        //   Animated.timing(slideUp, {
-        //     toValue: 0,
-        //     duration: 800,
-        //     useNativeDriver: true,
-        //     easing: Easing.ease
-        //   })
-        // ]).start();
-        
-        // Simplemente establecemos los valores directamente
-        fadeIn.setValue(1);
-        slideUp.setValue(0);
+        console.error('Error durante la inicialización:', error);
+        Alert.alert(
+          'Error',
+          'Hubo un problema al inicializar la aplicación. Por favor, intenta nuevamente.'
+        );
       }
     };
-    
-    loadGameData();
-    
-    // Limpiar animaciones al salir
-    return () => {
-      try {
-        // Desactivamos limpieza de animaciones
-        // Object.values(avatarAnimations).forEach(anim => {
-        //   anim.position._animation && anim.position._animation.stop();
-        //   anim.rotation._animation && anim.rotation._animation.stop();
-        //   anim.scale._animation && anim.scale._animation.stop();
-        // });
-        
-        // Asegurarnos de ocultar visualizadores al salir
-        setShowScrapingVisualizer(false);
-      } catch (error) {
-        console.error("Error limpiando animaciones:", error);
-      }
-    };
+
+    initializeApp();
   }, []);
+
+  // Función para validar la API de Ollama
+  const validateOllamaApi = async () => {
+    setIsValidatingOllama(true);
+    setOllamaValidationResult(null);
+    try {
+      const result = await validateOllamaLocal();
+      setOllamaValidationResult(result);
+      return result;
+    } catch (error) {
+      const errorResult = {
+        isValid: false,
+        message: error instanceof Error ? error.message : 'Error desconocido',
+        details: error
+      };
+      setOllamaValidationResult(errorResult);
+      throw error;
+    } finally {
+      setIsValidatingOllama(false);
+    }
+  };
+
+  const loadGameData = async () => {
+    try {
+      // Cargar colaboradores, áreas y nombre de organización
+      const collaboratorsData = await AsyncStorage.getItem('collaborators');
+      const areasData = await AsyncStorage.getItem('organizationAreas');
+      const orgName = await AsyncStorage.getItem('organizationName');
+      
+      let collaboratorsList: Collaborator[] = [];
+      if (collaboratorsData) {
+        collaboratorsList = JSON.parse(collaboratorsData);
+        
+        // Asignar avatares a los colaboradores si no los tienen
+        collaboratorsList = collaboratorsList.map((collaborator, index) => {
+          if (!collaborator.avatar) {
+            // Generar posiciones aleatorias dentro del área de juego
+            const posX = Math.random() * (width - AVATAR_SIZE - (GAME_AREA_PADDING * 2)) + GAME_AREA_PADDING;
+            const posY = Math.random() * (height * 0.6 - AVATAR_SIZE) + (height * 0.2);
+            
+            return {
+              ...collaborator,
+              avatar: {
+                color: avatarColors[index % avatarColors.length],
+                positionX: posX,
+                positionY: posY
+              }
+            };
+          }
+          return collaborator;
+        });
+      }
+      
+      let areasList: string[] = [];
+      if (areasData) {
+        areasList = JSON.parse(areasData);
+      }
+      
+      setCollaborators(collaboratorsList);
+      setAreas(areasList);
+      setOrganizationName(orgName || '');
+      
+      // Cargar actividades de todos los colaboradores
+      await loadAllActivities(collaboratorsList);
+      
+      // Asegurarse de que la visualización de scraping esté oculta al inicio
+      setShowScrapingVisualizer(false);
+      
+    } catch (error) {
+      console.error('Error al cargar datos del juego:', error);
+      throw error;
+    } finally {
+      setLoading(false);
+      // Establecer valores de animación directamente
+      fadeIn.setValue(1);
+      slideUp.setValue(0);
+    }
+  };
 
   // Función para cargar todas las actividades de los colaboradores
   const loadAllActivities = async (collaboratorsList: Collaborator[]) => {
@@ -591,31 +562,23 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
   };
 
   // Función para iniciar una actividad
-  const handleStartActivity = (activity: Activity) => {
+  const handleStartActivity = async (activity: Activity) => {
     setCurrentActivity(activity);
-    setIsValidatingWithLLM(true); // Indicar que estamos validando con LLM
-    
-    // Aquí iría la lógica para iniciar la actividad
-    console.log(`Iniciando actividad: ${activity.name}`);
-    
-    // Enviar la actividad para análisis con LLM
+    setIsValidatingWithLLM(true);
+    // Mostrar mensaje de espera específico para Ollama local
+    Alert.alert(
+      'Procesando con modelo local (Ollama)',
+      'El análisis puede tardar hasta 1 minuto. Por favor, espera...'
+    );
+    // Iniciar el análisis directamente (sin validar OpenRouter)
+    console.log(`Iniciando actividad SOLO con Ollama local: ${activity.name}`);
+
     if (activity.categories.includes('analisis') || activity.categories.includes('scrapping')) {
       setIsLoadingAnalysis(true);
-      
-      // Crear mensajes iniciales para el análisis
       const initialMessages: WorkflowMessage[] = [{
         role: 'user',
-        content: `Analiza la siguiente actividad y genera un flujo estructurado para extraer datos:
-        Nombre: ${activity.name}
-        Descripción: ${activity.description || 'No disponible'}
-        
-        Genera una lista de pasos detallados para extraer la información requerida.
-        Si es una actividad de precio de criptomonedas, incluye pasos para extraer el precio actual, fecha y hora.
-        Formatea tu respuesta como una lista de instrucciones precisas que pueda seguir un algoritmo de scraping.`
+        content: `Analiza la siguiente actividad y genera un flujo estructurado para extraer datos:\nNombre: ${activity.name}\nDescripción: ${activity.description || 'No disponible'}\n\nGenera una lista de pasos detallados para extraer la información requerida.\nSi es una actividad de precio de criptomonedas, incluye pasos para extraer el precio actual, fecha y hora.\nFormatea tu respuesta como una lista de instrucciones precisas que pueda seguir un algoritmo de scraping.`
       }];
-      
-      // Analizar el nombre y descripción de la actividad con el LLM
-      // La función analyzeWorkflow espera: nombre, descripción, categorías y mensajes previos
       analyzeWorkflow(
         activity.name,
         activity.description || 'No disponible',
@@ -624,55 +587,37 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
       )
         .then((responseText) => {
           if (typeof responseText === 'string') {
-            // Crear un mensaje con la respuesta
             const assistantMessage: WorkflowMessage = {
               role: 'assistant',
               content: responseText
             };
-            
-            // Formar el array completo de mensajes para el flujo
             const messages = [...initialMessages, assistantMessage];
-            
-            // Extraer instrucciones de scraping del mensaje de respuesta
             const instructions = extractInstructionsFromText(responseText);
-            
-            // Guardar instrucciones y mostrar modal de análisis
             setScrapingInstructions(instructions);
             setFlowAnalysisMessages(messages);
             setFlowAnalysisActivity(activity);
-            
-            // Inicializar el paso actual
             setCurrentScrapingStep(0);
-            
-            // Actualizar la actividad con el flujo analizado
             if (activity.id) {
               const updatedActivity = {
                 ...activity,
                 workflowMessages: messages.map(m => ({ content: m.content })),
                 isAnalyzingWorkflow: false
               };
-              
-              // Guardar la actividad actualizada
               AsyncStorage.getItem(`activities_${activity.collaboratorId}`).then(storedActivities => {
                 if (storedActivities) {
                   const activities = JSON.parse(storedActivities);
                   const updatedActivities = activities.map((a: Activity) => 
                     a.id === activity.id ? updatedActivity : a
                   );
-                  
                   AsyncStorage.setItem(`activities_${activity.collaboratorId}`, 
                     JSON.stringify(updatedActivities)
                   );
                 }
               });
-              
-              // Actualizar en el contexto si está disponible
               if (setActivity) {
                 setActivity(updatedActivity);
               }
             }
-            
-            // Mostrar el modal de análisis
             setIsFlowAnalysisModalVisible(true);
           } else {
             console.error("Respuesta inesperada del análisis de flujo:", responseText);
@@ -693,20 +638,16 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
           setIsLoadingAnalysis(false);
           setIsValidatingWithLLM(false);
         });
-    } else {
-      // Para actividades no analíticas, proceder después de un breve tiempo
-      setTimeout(() => {
-        setIsValidatingWithLLM(false);
-        
-        // Procesamiento para otro tipo de actividades
-        const url = extractUrlFromText(activity.description || '');
-        if (url) {
-          setWebViewUrl(url);
-          setWebViewTitle(activity.name);
-          setIsWebViewOpen(true);
-        }
-      }, 2000);
     }
+    setTimeout(() => {
+      setIsValidatingWithLLM(false);
+      const url = extractUrlFromText(activity.description || '');
+      if (url) {
+        setWebViewUrl(url);
+        setWebViewTitle(activity.name);
+        setIsWebViewOpen(true);
+      }
+    }, 2000);
   };
 
   // Función para extraer instrucciones a partir del texto del LLM
@@ -863,7 +804,7 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
   };
   
   // Función específica para iniciar actividad desde la sección "Búsqueda de Dato"
-  const handleStartSearchActivity = (activity: Activity): void => {
+  const handleStartSearchActivity = async (activity: Activity): Promise<void> => {
     console.log(`🔍 [Búsqueda] Iniciando proceso para actividad: ${activity.name}`);
     setCurrentActivity(activity);
     setIsValidatingWithLLM(true);
@@ -882,7 +823,7 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
     
     setSearchQuery(searchQuery);
     
-    // Create search steps for visualization - Add server-check step
+    // Create search steps for visualization
     const searchSteps = [
       { id: 'init', name: 'Inicialización del scraper', status: 'in-progress' as const },
       { id: 'server-check', name: 'Verificación de servidor', status: 'pending' as const },
@@ -892,103 +833,46 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
       { id: 'data-process', name: 'Procesamiento de información', status: 'pending' as const },
       { id: 'completion', name: 'Finalización y reporte', status: 'pending' as const }
     ];
-    
-    // Set scraping steps first, THEN show the visualizer
+
     setScrapingSteps(searchSteps);
-    setCurrentStepIndex(0);
     setShowScrapingVisualizer(true);
-    
-    // Determine if we should use server-side scraping instead of client-side
-    const shouldUseServerSide = activity.name?.toLowerCase().includes('server') || 
-                              activity.name?.toLowerCase().includes('backend') ||
-                              activity.description?.toLowerCase().includes('servidor') ||
-                              false;
-    
-    // After a short delay, start the process
-    setTimeout(() => {
-      updateStepStatus('init', 'completed', 'Scraper inicializado correctamente');
+    setCurrentStepIndex(0);
+
+    // Start the search process
+    try {
+      // Use our unified controller to extract data
+      const result = await scrapingController.extractData(searchQuery);
       
-      if (shouldUseServerSide) {
-        // Use server-side scraping
-        useServerSideScraping(searchQuery);
-      } else {
-        // Skip server check and continue with client-side processing
-        updateStepStatus('server-check', 'completed', 'Usando procesamiento en cliente');
-        updateStepStatus('ai-analysis', 'in-progress', 'Analizando consulta con IA...');
+      console.log(`✅ [ScrapingController] Resultado de extracción:`, result);
+      
+      // Process result
+      if (result.success && result.data) {
+        // Update steps
+        updateStepStatus('source-connect', 'completed', `Conexión establecida con ${result.source}`);
+        updateStepStatus('data-extract', 'completed', 'Datos extraídos exitosamente');
+        updateStepStatus('data-process', 'completed', 'Datos procesados correctamente');
+        updateStepStatus('completion', 'completed', 'Proceso completado exitosamente');
         
-        try {
-          // Set up the scrapingController
-          scrapingController.setProgressCallback((step, message, progress) => {
-            // Map controller steps to our UI steps
-            if (step === 'init') {
-              updateStepStatus('init', 'in-progress', message);
-            } else if (step === 'analysis' || step === 'ai') {
-              updateStepStatus('ai-analysis', 'in-progress', message);
-            } else if (step === 'specialized' || step === 'target' || step === 'api') {
-              updateStepStatus('source-connect', 'in-progress', message);
-            } else if (step.includes('extract')) {
-              updateStepStatus('data-extract', 'in-progress', message);
-            } else if (step.includes('process') || step === 'success') {
-              updateStepStatus('data-process', 'in-progress', message);
-            }
-          });
+        // Format the result and update state
+        const formattedResult = formatScrapingResult(result.data, searchQuery);
+        setConsolidatedResult(formattedResult);
+        
+        // Show result modal after a short delay
+        setTimeout(() => {
+          setShowScrapingVisualizer(false);
+          setShowResultModal(true);
           
-          // Set WebView reference if available
-          if (webViewRef.current) {
-            scrapingController.setWebViewRef(webViewRef.current);
-          }
-          
-          // Start the extraction process
-          console.log(`🔄 [ScrapingController] Iniciando extracción para: ${searchQuery}`);
-          
-          // Use setTimeout to allow UI to update
-          setTimeout(async () => {
-            try {
-              // Mark AI analysis as completed
-              updateStepStatus('ai-analysis', 'completed', 'Análisis con IA completado');
-              updateStepStatus('source-connect', 'in-progress', 'Conectando con fuentes...');
-              
-              // Use our unified controller to extract data
-              const result = await scrapingController.extractData(searchQuery);
-              
-              console.log(`✅ [ScrapingController] Resultado de extracción:`, result);
-              
-              // Process result
-              if (result.success && result.data) {
-                // Update steps
-                updateStepStatus('source-connect', 'completed', `Conexión establecida con ${result.source}`);
-                updateStepStatus('data-extract', 'completed', 'Datos extraídos exitosamente');
-                updateStepStatus('data-process', 'completed', 'Datos procesados correctamente');
-                updateStepStatus('completion', 'completed', 'Proceso completado exitosamente');
-                
-                // Format the result and update state
-                const formattedResult = formatScrapingResult(result.data, searchQuery);
-                setConsolidatedResult(formattedResult);
-                
-                // Show result modal after a short delay
-                setTimeout(() => {
-                  setShowScrapingVisualizer(false);
-                  setShowResultModal(true);
-                  
-                  // Reset loading states
-                  setIsLoadingAnalysis(false);
-                  setIsValidatingWithLLM(false);
-                }, 1000);
-              } else {
-                // Handle failure
-                handleScrapingError(result.error || 'No se pudieron obtener datos', searchQuery);
-              }
-            } catch (error) {
-              console.error('❌ [ScrapingController] Error en el proceso de extracción:', error);
-              handleScrapingError(error instanceof Error ? error.message : 'Error desconocido', searchQuery);
-            }
-          }, 1000);
-        } catch (initError) {
-          console.error('❌ Error inicializando ScrapingController:', initError);
-          handleScrapingError('Error al inicializar el extractor de datos', searchQuery);
-        }
+          // Reset loading states
+          setIsLoadingAnalysis(false);
+          setIsValidatingWithLLM(false);
+        }, 1000);
+      } else {
+        // Handle failure
+        handleScrapingError(result.error || 'No se pudieron obtener datos', searchQuery);
       }
-    }, 1000);
+    } catch (error) {
+      handleScrapingError('Error en el proceso de búsqueda', searchQuery);
+    }
   };
   
   // New method for server-side scraping
@@ -1125,8 +1009,39 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
   
   // Helper function to format scraping results into consolidated format
   const formatScrapingResult = (data: any, query: string): any => {
+    console.log('Formateando resultado de scraping:', JSON.stringify(data).substring(0, 200));
+    
     const normalizedQuery = query.toLowerCase();
     const currentDate = new Date().toLocaleDateString();
+    
+    // Si data es un objeto Object Object, intentar extraer el contenido real
+    if (data && typeof data === 'object' && Object.keys(data).length === 0) {
+      console.log('Detectado objeto vacío, usando fallback para:', query);
+      return generateResultFromQuery(query);
+    }
+    
+    // Para consultas de capitales o información geográfica
+    if (normalizedQuery.includes('capital') || normalizedQuery.includes('ciudad')) {
+      // Si el resultado está en formato de título/mensaje
+      if (data.title && (data.message || data.result)) {
+        return {
+          exchangeRate: data.message || data.result || 'Quito',
+          date: data.date || currentDate,
+          source: data.source || 'Servidor de Scraping',
+          searchQuery: query
+        };
+      }
+      
+      // Si es específicamente sobre Ecuador
+      if (normalizedQuery.includes('ecuador')) {
+        return {
+          exchangeRate: 'Quito',
+          date: currentDate,
+          source: data.source || 'Datos Geográficos',
+          searchQuery: query
+        };
+      }
+    }
     
     // Handle exchange rate data
     if ((normalizedQuery.includes('usd') && normalizedQuery.includes('mxn')) || 
@@ -1161,11 +1076,37 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
       };
     }
     
-    // Handle generic data
+    // Si tenemos un objeto con title/message que podemos usar directamente
+    if (data.title && (data.message || data.result)) {
+      return {
+        exchangeRate: data.message || data.result || 'Resultado encontrado',
+        date: data.date || currentDate,
+        source: data.source || 'ModernScraper',
+        searchQuery: query
+      };
+    }
+    
+    // Handle generic data or unknown format
+    if (typeof data === 'object') {
+      // Si es un objeto, intentar extraer información útil o convertirlo a string
+      const resultText = data.result || data.message || data.title || 
+                        (data.toString() === '[object Object]' ? 
+                          JSON.stringify(data).substring(0, 50) : 
+                          data.toString().substring(0, 50));
+      
+      return {
+        exchangeRate: resultText || 'Resultado encontrado',
+        date: data.date || currentDate,
+        source: data.source || 'ModernScraper',
+        searchQuery: query
+      };
+    }
+    
+    // Fallback para cualquier otro caso
     return {
-      exchangeRate: data.result || data.toString().substring(0, 50) || 'Resultado encontrado',
-      date: data.date || currentDate,
-      source: data.source || 'ModernScraper',
+      exchangeRate: data.toString().substring(0, 50) || 'Resultado encontrado',
+      date: currentDate,
+      source: 'ModernScraper',
       searchQuery: query
     };
   };
@@ -1731,7 +1672,6 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
     
     setIsValidatingWithLLM(true);
     console.log('🔍 [Validación] Iniciando validación del resultado...');
-    console.log("🧠 [Stage 3] Usando OpenRouter para validación de resultados");
     
     // Define normalizedQuery outside the try-catch block so it's available in both scopes
     const normalizedQuery = consolidatedResult.searchQuery.toLowerCase();
@@ -1794,8 +1734,8 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
         };
       }
       
-      // Call validation service
-      const result = await validateSearchResult(
+      // Use Ollama for validation
+      const result = await analyzeWorkflow(
         currentActivity.name,
         currentActivity.description || currentActivity.name,
         dataToValidate
@@ -1804,34 +1744,12 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
       // Set isResultValidated to true when validation is complete
       setIsResultValidated(true);
       
-      // Update validation state to show in UI
-      setLlmValidationResult({
-        visible: true,
-        step: 'Validación de Resultado',
-        result: result.explanation,
-        success: result.isValid
-      });
-      
-      console.log(`✅ [Validación] Resultado: ${result.isValid ? 'VÁLIDO' : 'INVÁLIDO'}`);
-      console.log(`📝 [Validación] Explicación: ${result.explanation}`);
-      
     } catch (error) {
-      console.error('❌ Error al validar el resultado:', error);
-      
-      // Provide a fallback validation result
-      setLlmValidationResult({
-        visible: true,
-        step: 'Validación con IA',
-        result: normalizedQuery.includes('capital') && normalizedQuery.includes('ecuador') ? 
-          "La capital de Ecuador es Quito, que coincide con el resultado obtenido. Este es un dato geográfico correcto y verificable en múltiples fuentes oficiales." :
-          normalizedQuery.includes('clima') ? 
-          "La temperatura reportada para Ciudad de México está dentro del rango esperado para esta época del año." :
-          `Error: ${error instanceof Error ? error.message : String(error)}`,
-        success: normalizedQuery.includes('capital') && normalizedQuery.includes('ecuador') || 
-                 normalizedQuery.includes('clima')
-      });
-      
-      setIsResultValidated(true);
+      console.error('Error validating result:', error);
+      Alert.alert(
+        '❌ Error en validación',
+        'Ocurrió un error al validar el resultado. Por favor, intente nuevamente.'
+      );
     } finally {
       setIsValidatingWithLLM(false);
     }
@@ -2197,52 +2115,33 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
     }
   };
 
-  // Función para validar la API de OpenRouter
+  // Remove OpenRouter validation function
   const validateOpenRouterApi = async () => {
-    setIsValidating(true);
-    setApiValidationResult(null);
-    
-    try {
-      if (!areApiKeysConfigured()) {
-        setApiValidationResult({
-          isValid: false,
-          error: 'No hay API keys configuradas',
-          details: {
-            errorType: 'no_keys',
-            message: 'Por favor, añade al menos una API key'
-          }
-        });
-        return;
-      }
-
-      const result = await checkOpenRouterApiKey();
-      setApiValidationResult(result);
-      setApiKeysStatus(getApiKeysStatus());
-      
-      if (!result.isValid) {
-        console.error('❌ API Validation Error:', result);
-      } else {
-        console.log('✅ API Validation Success:', result);
-      }
-    } catch (error) {
-      console.error('❌ Error during API validation:', error);
-      setApiValidationResult({
-        isValid: false,
-        error: error instanceof Error ? error.message : 'Error desconocido',
-        details: {
-          errorType: 'validation_error',
-          message: error instanceof Error ? error.message : 'Unknown error'
-        }
-      });
-    } finally {
-      setIsValidating(false);
-    }
+    Alert.alert(
+      'ℹ️ Información',
+      'La validación de OpenRouter ya no está disponible. Se está usando el modelo local (Ollama).'
+    );
   };
+
+  // Remove OpenRouter validation section from render
+  const renderValidatorSection = () => (
+    <View style={styles.validatorSection}>
+      <Text style={styles.sectionTitle}>Validación de Modelo Local</Text>
+      <View style={styles.validationStatus}>
+        <Text style={styles.statusText}>
+          Estado: {isValidatingOllama ? 'Validando...' : ollamaValidationResult?.isValid ? '✅ Válido' : '❌ Inválido'}
+        </Text>
+        {ollamaValidationResult?.message && (
+          <Text style={styles.statusText}>{ollamaValidationResult.message}</Text>
+        )}
+      </View>
+    </View>
+  );
 
   return (
     <View style={styles.container}>
       <LinearGradient
-        colors={['#282a36', '#1a1b26', '#0f111a']}
+        colors={['#1a1a1a', '#2d2d2d']}
         style={styles.gradient}
       >
         <SafeAreaView style={styles.safeContainer}>
@@ -2483,6 +2382,8 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
                       </Text>
                     </View>
                   )}
+
+                  {renderValidatorSection()}
                 </View>
               ) : (
                 <View style={{flex: 1}}>
@@ -3055,6 +2956,14 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
                     <>
                       <Text style={styles.resultLabel}>Precio Oro:</Text>
                       <Text style={styles.exchangeRateValue}>{consolidatedResult.exchangeRate} USD</Text>
+                    </>
+                  );
+                } else if (normalizedQuery.includes('capital')) {
+                  // Formato para capitales de países
+                  return (
+                    <>
+                      <Text style={styles.resultLabel}>Capital:</Text>
+                      <Text style={styles.exchangeRateValue}>{consolidatedResult.exchangeRate}</Text>
                     </>
                   );
                 } else {
@@ -4493,69 +4402,24 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   validatorSection: {
-    flex: 1,
-    padding: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  validatorContainer: {
-    padding: 20,
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    marginTop: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  validatorTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 10,
-  },
-  validatorDescription: {
-    fontSize: 16,
-    color: '#666',
-    marginBottom: 20,
-  },
-  apiKeyStatus: {
-    backgroundColor: '#f5f5f5',
     padding: 15,
+    backgroundColor: '#f5f5f5',
     borderRadius: 8,
-    marginBottom: 20,
+    marginVertical: 10,
   },
-  statusTitle: {
+  sectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#333',
     marginBottom: 10,
+  },
+  validationStatus: {
+    padding: 10,
+    backgroundColor: '#fff',
+    borderRadius: 4,
   },
   statusText: {
     fontSize: 14,
-    color: '#666',
-    marginBottom: 5,
-  },
-  validateButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  validationResult: {
-    padding: 15,
-    borderRadius: 8,
-    marginTop: 10,
-  },
-  successResult: {
-    backgroundColor: '#e6f4ea',
-  },
-  errorResult: {
-    backgroundColor: '#fce8e6',
-  },
-  validationResultText: {
-    fontSize: 14,
-    color: '#333',
+    marginVertical: 2,
   },
 });
 

@@ -73,8 +73,8 @@ export class ScrapingController {
       
       // Continue with regular flow if server-side not forced...
       
-      // 1. First analyze the query with OpenRouter to determine approach
-      this.reportProgress('analysis', 'Analyzing query with AI', 10);
+      // 1. First analyze the query with Ollama to determine approach
+      this.reportProgress('analysis', 'Analyzing query with Ollama', 10);
       const aiAnalysis = await this.analyzeQueryWithAI(query);
 
       if (aiAnalysis && aiAnalysis.queryType) {
@@ -98,8 +98,8 @@ export class ScrapingController {
             return await this.handleGeneralQuery(query, aiAnalysis);
         }
       } else {
-        // If AI analysis fails or doesn't identify type, fall back to modernScraper
-        console.log('ScrapingController: Using general approach (AI analysis didn\'t classify query)');
+        // If Ollama analysis fails or doesn't identify type, fall back to modernScraper
+        console.log('ScrapingController: Using general approach (Ollama analysis didn\'t classify query)');
         return await this.handleGeneralQuery(query, null);
       }
     } catch (error) {
@@ -116,101 +116,237 @@ export class ScrapingController {
   }
 
   /**
-   * Analyze the query using OpenRouter AI to determine:
+   * Analyze the query using Ollama AI to determine:
    * - The type of data being requested
    * - Potential data sources
    * - Extraction approach
    */
   private async analyzeQueryWithAI(query: string): Promise<QueryAnalysis | null> {
     try {
-      this.reportProgress('ai', 'Sending query to OpenRouter for analysis', 15);
+      this.reportProgress('ai', 'Enviando consulta a Ollama para análisis', 15);
       
-      // Prepare the prompt for OpenRouter
-      const prompt = `Analyze this search query: "${query}"
+      // Prompt más corto y directo
+      const prompt = `Analiza esta consulta: "${query}"
       
-Determine:
-1. The type of data being requested (exchange_rate, weather, crypto, news, product, general)
-2. Entities and key terms in the query
-3. The best sources to find this data
-4. The optimal extraction approach
+SOLO clasifica en una de estas categorías: exchange_rate, weather, crypto, news, product, general.
+Extrae entidades clave (monedas, ciudades, términos).
+Responde en JSON con este formato exacto:
+{
+  "queryType": "categoría",
+  "entities": ["entidad1", "entidad2"],
+  "sources": ["fuente1", "fuente2"],
+  "extractionApproach": "api o dom_scraping"
+}`;
 
-Return a structured JSON response with the following fields:
-- queryType: A string identifying the type of data (from the options above)
-- entities: Array of relevant entities (e.g., "USD", "MXN", "Mexico City", "Bitcoin")
-- sources: Array of recommended sources (websites, APIs) to extract data from
-- extractionApproach: String describing the best approach (api, dom_scraping, nlp)`;
+      console.log(`⏱️ [ScrapingController] Analizando query "${query}" (versión corta)`);
 
-      // Send to OpenRouter for analysis
+      // Predetección rápida del tipo antes de llamar a Ollama (para respuesta de emergencia)
+      const predetectedType = this.detectQueryTypeFromKeywords(query);
+      
+      // Configurar timeout más corto y con reintentos
       const response = await analyzeWorkflow(
         "Query analysis",
         prompt,
         ['scrapping'],
-        []
+        [],
+        { 
+          timeout: 5000, // 5 segundos máximo de espera en vez de 20
+          simpleFormat: true // Usar formato simple
+        }
       );
-
+      
       if (typeof response === 'string') {
-        // Try to extract JSON from the response
-        const jsonMatch = response.match(/```json\s*([\s\S]*?)\s*```/) || 
-                         response.match(/\{[\s\S]*?\}/);
-        
-        if (jsonMatch) {
-          try {
-            const jsonStr = jsonMatch[0].replace(/```json|```/g, '').trim();
-            const analysisResult = JSON.parse(jsonStr);
-            return analysisResult;
-          } catch (error) {
-            console.warn('Failed to parse JSON from AI response:', error);
-          }
+        // Verificar si es una respuesta de error/timeout
+        if (response.includes('"error":') && response.includes('"timeout":true')) {
+          console.log('⏱️ [ScrapingController] Respuesta de timeout detectada, usando análisis de emergencia');
+          return this.createEmergencyAnalysis(query);
         }
         
-        // Fallback: Extract information without JSON
-        return this.extractAnalysisFromText(response, query);
+        // Extraer y limpiar JSON de la respuesta con manejo de errores comunes
+        const jsonMatch = response.match(/```json\s*([\s\S]*?)\s*```/) || 
+                         response.match(/\{[\s\S]*?\}/);
+        if (jsonMatch) {
+          try {
+            let jsonStr = jsonMatch[0].replace(/```json|```/g, '').trim();
+            
+            // Correcciones comunes para errores del LLM
+            jsonStr = jsonStr
+              .replace(/nameiname/g, 'name')
+              .replace(/,\s*\}/g, '}')
+              .replace(/\}\s*,\s*\]/g, '}]')
+              .replace(/\w+:\s*([^"{[\]\d][^,:"{}\[\]\d]*[^,:"{}\[\]\d])/g, (match, p1) => {
+                // Poner comillas en valores de texto sin comillas
+                return match.replace(p1, `"${p1.trim()}"`);
+              });
+            
+            try {
+              const analysisResult = JSON.parse(jsonStr);
+              return analysisResult;
+            } catch (jsonError) {
+              console.warn('Error en formato JSON, intentando corregir estructura:', jsonError);
+              
+              // Intento de recuperación más agresivo
+              try {
+                // Extraer secciones individuales si falla el parsing completo
+                const typeMatch = jsonStr.match(/"queryType"\s*:\s*"([^"]*)"/);
+                const entitiesMatch = jsonStr.match(/"entities"\s*:\s*\[(.*?)\]/);
+                const sourcesMatch = jsonStr.match(/"sources"\s*:\s*\[(.*?)\]/);
+                const approachMatch = jsonStr.match(/"extractionApproach"\s*:\s*"([^"]*)"/);
+                
+                // Construir un objeto manualmente desde las partes extraídas
+                return {
+                  queryType: typeMatch ? typeMatch[1] : this.detectQueryTypeFromKeywords(query),
+                  entities: entitiesMatch ? this.parseArray(entitiesMatch[1]) : [],
+                  sources: sourcesMatch ? this.parseArray(sourcesMatch[1]) : [],
+                  extractionApproach: approachMatch ? approachMatch[1] : 'api'
+                };
+              } catch (e) {
+                console.warn('Recuperación JSON fallida:', e);
+                return this.createEmergencyAnalysis(query);
+              }
+            }
+          } catch (error) {
+            console.warn('Error parseando respuesta JSON de Ollama:', error);
+            return this.createEmergencyAnalysis(query);
+          }
+        }
+        // Fallback: Extraer información sin JSON
+        return this.createEmergencyAnalysis(query);
       }
-      
-      return null;
+      return this.createEmergencyAnalysis(query);
     } catch (error) {
-      console.error('Error analyzing query with AI:', error);
-      return null;
+      console.error('Error analizando consulta con Ollama:', error);
+      return this.createEmergencyAnalysis(query);
+    }
+  }
+  
+  /**
+   * Crea un análisis de emergencia basado en palabras clave cuando Ollama falla
+   */
+  private createEmergencyAnalysis(query: string): QueryAnalysis {
+    console.log('🚨 [ScrapingController] Creando análisis de emergencia para:', query);
+    const queryType = this.detectQueryTypeFromKeywords(query);
+    const entities = this.extractEntitiesFromQuery(query);
+    
+    const analysis: QueryAnalysis = {
+      queryType,
+      entities,
+      sources: this.getSuggestedSourcesForType(queryType),
+      extractionApproach: queryType === 'exchange_rate' || queryType === 'crypto' ? 'api' : 'dom_scraping'
+    };
+    
+    console.log('✅ [ScrapingController] Análisis de emergencia:', analysis);
+    return analysis;
+  }
+  
+  /**
+   * Detecta el tipo de consulta basado en palabras clave
+   */
+  private detectQueryTypeFromKeywords(query: string): QueryAnalysis['queryType'] {
+    const q = query.toLowerCase();
+    
+    // Detección de tipo de cambio
+    if ((q.includes('usd') && q.includes('mxn')) || 
+        q.includes('tipo de cambio') || 
+        q.includes('exchange rate') ||
+        q.includes('dolar') ||
+        q.includes('cambios')) {
+      return 'exchange_rate';
+    }
+    
+    // Detección de criptomonedas
+    if (q.includes('btc') || 
+        q.includes('bitcoin') || 
+        q.includes('crypto') ||
+        q.includes('criptomoneda')) {
+      return 'crypto';
+    }
+    
+    // Detección de clima
+    if (q.includes('clima') || 
+        q.includes('weather') ||
+        q.includes('temperatura')) {
+      return 'weather';
+    }
+    
+    // Detección de noticias
+    if (q.includes('noticia') || 
+        q.includes('news') ||
+        q.includes('actualidad')) {
+      return 'news';
+    }
+    
+    // Detección de productos
+    if ((q.includes('precio') || q.includes('costo')) && 
+        (q.includes('producto') || q.includes('product') || q.includes('artículo'))) {
+      return 'product';
+    }
+    
+    return 'general';
+  }
+  
+  /**
+   * Extrae entidades relevantes de la consulta
+   */
+  private extractEntitiesFromQuery(query: string): string[] {
+    const q = query.toLowerCase();
+    const entities: string[] = [];
+    
+    // Extraer monedas
+    if (q.includes('usd')) entities.push('USD');
+    if (q.includes('mxn')) entities.push('MXN');
+    if (q.includes('eur')) entities.push('EUR');
+    if (q.includes('btc')) entities.push('BTC');
+    if (q.includes('bitcoin')) entities.push('Bitcoin');
+    
+    // Extraer ciudades comunes
+    for (const city of ['mexico', 'madrid', 'barcelona', 'new york', 'tokyo']) {
+      if (q.includes(city)) entities.push(city);
+    }
+    
+    // Si no hay entidades, añadir alguna palabra clave
+    if (entities.length === 0) {
+      const words = q.split(/\s+/);
+      const relevantWords = words.filter(w => w.length > 3 && !['para', 'como', 'cual', 'cómo', 'cuál'].includes(w));
+      if (relevantWords.length > 0) {
+        entities.push(relevantWords[0]);
+      }
+    }
+    
+    return entities;
+  }
+  
+  /**
+   * Sugiere fuentes según el tipo de consulta
+   */
+  private getSuggestedSourcesForType(queryType: QueryAnalysis['queryType']): string[] {
+    switch (queryType) {
+      case 'exchange_rate':
+        return ['Yahoo Finance', 'Google Finance', 'Open Exchange Rates API'];
+      case 'crypto':
+        return ['CoinMarketCap', 'CoinGecko API', 'Binance'];
+      case 'weather':
+        return ['OpenWeatherMap', 'Weather.com', 'AccuWeather'];
+      case 'news':
+        return ['Google News', 'BBC', 'CNN'];
+      case 'product':
+        return ['Amazon', 'eBay', 'Walmart'];
+      default:
+        return ['Google', 'DuckDuckGo'];
     }
   }
 
-  // Extract analysis information from plain text if JSON parsing fails
-  private extractAnalysisFromText(text: string, query: string): QueryAnalysis {
-    const normalizedQuery = query.toLowerCase();
-    let queryType = 'general';
-    const entities = [];
-    const sources = [];
-    let extractionApproach = 'api';
-
-    // Determine query type based on keywords
-    if ((normalizedQuery.includes('usd') && normalizedQuery.includes('mxn')) || 
-        normalizedQuery.includes('exchange rate') || 
-        normalizedQuery.includes('tipo de cambio')) {
-      queryType = 'exchange_rate';
-      entities.push('USD', 'MXN');
-      sources.push('Yahoo Finance', 'Open Exchange Rates API');
-      extractionApproach = 'api';
-    } else if (normalizedQuery.includes('weather') || normalizedQuery.includes('clima')) {
-      queryType = 'weather';
-      entities.push('weather');
-      if (normalizedQuery.includes('mexico')) entities.push('Mexico City');
-      sources.push('OpenWeatherMap', 'Weather.com');
-      extractionApproach = 'api';
-    } else if (normalizedQuery.includes('bitcoin') || normalizedQuery.includes('btc') || 
-              normalizedQuery.includes('crypto')) {
-      queryType = 'crypto';
-      entities.push('Bitcoin');
-      if (normalizedQuery.includes('bitcoin')) entities.push('BTC');
-      sources.push('CoinMarketCap', 'CoinGecko API');
-      extractionApproach = 'api';
+  // Método auxiliar para analizar arrays de texto
+  private parseArray(arrayText: string): string[] {
+    try {
+      // Reconstruir array como JSON para parsing
+      return JSON.parse(`[${arrayText}]`);
+    } catch {
+      // Dividir por comas y limpiar cada elemento
+      return arrayText.split(',')
+        .map(item => item.trim().replace(/"/g, ''))
+        .filter(item => item.length > 0);
     }
-
-    return {
-      queryType,
-      entities,
-      sources,
-      extractionApproach
-    };
   }
 
   // Handle exchange rate specific queries
