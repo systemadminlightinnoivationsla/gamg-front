@@ -10,8 +10,9 @@ import GameMenuScreen from './src/screens/GameMenuScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import GamePlayScreen from './src/screens/GamePlayScreen';
 import CollaboratorDetailScreen from './src/screens/CollaboratorDetailScreen';
+import EditorScreen from './src/screens/EditorScreen';
 
-type Screen = 'login' | 'register' | 'game-menu' | 'settings' | 'game-play' | 'collaborator-detail';
+type Screen = 'login' | 'register' | 'game-menu' | 'settings' | 'game-play' | 'collaborator-detail' | 'editor';
 
 const { width } = Dimensions.get('window');
 
@@ -152,6 +153,10 @@ export default function App() {
     changeScreen('game-play', 'left');
   };
 
+  const handleStartEditor = () => {
+    changeScreen('editor');
+  };
+
   // Mostrar pantalla de carga mientras se verifica el token
   if (isLoading) {
     return (
@@ -194,6 +199,7 @@ export default function App() {
               onLogout={handleLogout} 
               onStartGame={handleStartGame}
               onSettings={handleSettings}
+              onStartEditor={handleStartEditor}
             />
           )}
           
@@ -215,6 +221,13 @@ export default function App() {
               collaborator={selectedCollaborator}
               areaName={selectedAreaName}
               onBack={handleBackToGamePlay}
+            />
+          )}
+          
+          {currentScreen === 'editor' && (
+            <EditorScreen
+              onBack={handleBackToMenu}
+              username={username}
             />
           )}
         </Animated.View>

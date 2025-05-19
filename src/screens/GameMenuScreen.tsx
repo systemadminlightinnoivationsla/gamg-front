@@ -6,18 +6,21 @@ interface GameMenuScreenProps {
   onLogout: () => void;
   onStartGame: () => void;
   onSettings: () => void;
+  onStartEditor: () => void;
 }
 
 const GameMenuScreen: React.FC<GameMenuScreenProps> = ({ 
   username, 
   onLogout,
   onStartGame,
-  onSettings
+  onSettings,
+  onStartEditor
 }) => {
   // Animaciones
   const fadeIn = useRef(new Animated.Value(0)).current;
   const slideUp = useRef(new Animated.Value(30)).current;
   const buttonAnimations = [
+    useRef(new Animated.Value(50)).current,
     useRef(new Animated.Value(50)).current,
     useRef(new Animated.Value(50)).current,
     useRef(new Animated.Value(50)).current,
@@ -95,8 +98,8 @@ const GameMenuScreen: React.FC<GameMenuScreenProps> = ({
             })
           }}
         >
-          <TouchableOpacity style={styles.menuButton}>
-            <Text style={styles.menuButtonText}>Puntuaciones</Text>
+          <TouchableOpacity style={styles.menuButton} onPress={onStartEditor}>
+            <Text style={styles.menuButtonText}>Editor</Text>
           </TouchableOpacity>
         </Animated.View>
         
@@ -110,8 +113,8 @@ const GameMenuScreen: React.FC<GameMenuScreenProps> = ({
             })
           }}
         >
-          <TouchableOpacity style={styles.menuButton} onPress={onSettings}>
-            <Text style={styles.menuButtonText}>Configuración</Text>
+          <TouchableOpacity style={styles.menuButton}>
+            <Text style={styles.menuButtonText}>Puntuaciones</Text>
           </TouchableOpacity>
         </Animated.View>
         
@@ -120,6 +123,21 @@ const GameMenuScreen: React.FC<GameMenuScreenProps> = ({
             width: '100%',
             transform: [{ translateY: buttonAnimations[3] }],
             opacity: buttonAnimations[3].interpolate({
+              inputRange: [0, 50],
+              outputRange: [1, 0]
+            })
+          }}
+        >
+          <TouchableOpacity style={styles.menuButton} onPress={onSettings}>
+            <Text style={styles.menuButtonText}>Configuración</Text>
+          </TouchableOpacity>
+        </Animated.View>
+        
+        <Animated.View 
+          style={{
+            width: '100%',
+            transform: [{ translateY: buttonAnimations[4] }],
+            opacity: buttonAnimations[4].interpolate({
               inputRange: [0, 50],
               outputRange: [1, 0]
             })
