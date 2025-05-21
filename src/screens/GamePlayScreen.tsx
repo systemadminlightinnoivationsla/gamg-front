@@ -287,6 +287,10 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
     details?: any;
   } | null>(null);
 
+  // Nuevo estado para la sección de navegación directa
+  const [isDirectNavSectionVisible, setIsDirectNavSectionVisible] = useState(false);
+  const [directNavUrl, setDirectNavUrl] = useState('');
+
   // Cargar datos al inicio
   useEffect(() => {
     const initializeApp = async () => {
@@ -2643,11 +2647,12 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
                 <TouchableOpacity
                   style={[
                     styles.navButton,
-                    !isSearchSectionVisible && !isValidatorSectionVisible && styles.activeNavButton
+                    !isSearchSectionVisible && !isValidatorSectionVisible && !isDirectNavSectionVisible && styles.activeNavButton
                   ]}
                   onPress={() => {
                     setIsSearchSectionVisible(false);
                     setIsValidatorSectionVisible(false);
+                    setIsDirectNavSectionVisible(false);
                   }}
                 >
                   <Text style={styles.navButtonText}>Lista de Actividades</Text>
@@ -2661,7 +2666,7 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
                   onPress={() => {
                     setIsSearchSectionVisible(true);
                     setIsValidatorSectionVisible(false);
-                    // Inicializar los resultados de búsqueda con las actividades filtradas
+                    setIsDirectNavSectionVisible(false);
                     setSearchQuery('');
                     setSearchResults(filteredActivities);
                   }}
@@ -2677,9 +2682,24 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
                   onPress={() => {
                     setIsSearchSectionVisible(false);
                     setIsValidatorSectionVisible(true);
+                    setIsDirectNavSectionVisible(false);
                   }}
                 >
                   <Text style={styles.navButtonText}>Validador</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.navButton,
+                    isDirectNavSectionVisible && styles.activeNavButton
+                  ]}
+                  onPress={() => {
+                    setIsSearchSectionVisible(false);
+                    setIsValidatorSectionVisible(false);
+                    setIsDirectNavSectionVisible(true);
+                  }}
+                >
+                  <Text style={styles.navButtonText}>Navegación Directa</Text>
                 </TouchableOpacity>
               </View>
               
@@ -2768,6 +2788,37 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
                   )}
 
                   {renderValidatorSection()}
+                </View>
+              ) : isDirectNavSectionVisible ? (
+                <View style={styles.searchSection}>
+                  <Text style={{ color: '#f8f8f2', fontSize: 16, marginBottom: 10 }}>Ingresa la URL a navegar:</Text>
+                  <TextInput
+                    style={styles.searchInput}
+                    placeholder="https://ejemplo.com"
+                    placeholderTextColor="#6272a4"
+                    value={directNavUrl}
+                    onChangeText={setDirectNavUrl}
+                    autoCapitalize="none"
+                    keyboardType="url"
+                  />
+                  <TouchableOpacity
+                    style={[styles.startActivityButton, { marginTop: 10 }]}
+                    onPress={() => {
+                      let url = directNavUrl.trim();
+                      if (url && !url.startsWith('http')) {
+                        url = 'https://' + url;
+                      }
+                      if (url && url.startsWith('http')) {
+                        setWebViewUrl(url);
+                        setWebViewTitle('Navegación Directa');
+                        setIsWebViewOpen(true);
+                      } else {
+                        Alert.alert('URL inválida', 'Por favor ingresa una URL válida.');
+                      }
+                    }}
+                  >
+                    <Text style={styles.startActivityButtonText}>Ir a la URL</Text>
+                  </TouchableOpacity>
                 </View>
               ) : (
                 <View style={{flex: 1}}>
@@ -3496,6 +3547,57 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
           </View>
         </View>
       </Modal>
+      {isLoadingAnalysis && isSearchSectionVisible && (
+        <View style={{ alignItems: 'center', marginTop: 40 }}>
+          <ActivityIndicator size="large" color="#50fa7b" />
+          <Text style={{ color: '#bd93f9', fontSize: 18, marginTop: 15, fontWeight: 'bold', letterSpacing: 1 }}>Buscando...</Text>
+        </View>
+      )}
+      {showResultModal && isSearchSectionVisible && !isLoadingAnalysis && (
+        <Modal
+          visible={showResultModal}
+          transparent={true}
+          animationType="fade"
+        >
+          <View style={styles.loadingModalContainer}>
+            <View style={[styles.resultModalContent, { backgroundColor: '#23243a', borderRadius: 18, shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 16, elevation: 12, borderWidth: 1, borderColor: '#44475a' }]}> 
+              {/* Icono dinámico según tipo de consulta */}
+              <View style={{ alignItems: 'center', marginBottom: 10 }}>
+                <Text style={{ fontSize: 48 }}>
+                  {(() => {
+                    const q = consolidatedResult.searchQuery?.toLowerCase() || '';
+                    if (q.includes('usd') && q.includes('mxn')) return '💱';
+                    if (q.includes('clima') || q.includes('weather')) return '🌦️';
+                    if (q.includes('bitcoin') || q.includes('btc')) return '₿';
+                    if (q.includes('capital')) return '🏙️';
+                    if (q.includes('oro') || q.includes('gold')) return '🥇';
+                    return '🔎';
+                  })()}
+                </Text>
+              </View>
+              {/* Título y resultado principal */}
+              <Text style={{ color: '#8be9fd', fontSize: 20, fontWeight: 'bold', textAlign: 'center', marginBottom: 8, letterSpacing: 0.5 }}>
+                {consolidatedResult.searchQuery}
+              </Text>
+              <Text style={{ color: '#50fa7b', fontSize: 32, fontWeight: 'bold', textAlign: 'center', marginBottom: 8, textShadowColor: '#23243a', textShadowOffset: { width: 1, height: 2 }, textShadowRadius: 6 }}>
+                {consolidatedResult.exchangeRate}
+              </Text>
+              {/* Fuente y fecha */}
+              <View style={{ flexDirection: 'row', justifyContent: 'center', marginBottom: 10 }}>
+                <Text style={{ color: '#bd93f9', fontSize: 14, marginRight: 10 }}>{consolidatedResult.source}</Text>
+                <Text style={{ color: '#6272a4', fontSize: 14 }}>{consolidatedResult.date}</Text>
+              </View>
+              {/* Botón de cerrar */}
+              <TouchableOpacity
+                style={{ backgroundColor: '#50fa7b', borderRadius: 8, paddingVertical: 10, paddingHorizontal: 30, alignSelf: 'center', marginTop: 10 }}
+                onPress={() => setShowResultModal(false)}
+              >
+                <Text style={{ color: '#23243a', fontWeight: 'bold', fontSize: 16 }}>Cerrar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
     </View>
   );
 };
