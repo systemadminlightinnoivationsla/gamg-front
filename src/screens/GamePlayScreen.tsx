@@ -59,6 +59,7 @@ interface GamePlayScreenProps {
   onBack: () => void;
   onSelectCollaborator: (collaborator: Collaborator, areaName: string) => void;
   onStartEditor: () => void;
+  onStartCalendarizador: () => void;
 }
 
 // Colores para los avatares
@@ -76,7 +77,7 @@ const { width, height } = Dimensions.get('window');
 const GAME_AREA_PADDING = 40;
 const AVATAR_SIZE = 70;
 
-const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollaborator, onStartEditor }): JSX.Element => {
+const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollaborator, onStartEditor, onStartCalendarizador }): JSX.Element => {
   // Estados
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
   const [areas, setAreas] = useState<string[]>([]);
@@ -2598,6 +2599,23 @@ const GamePlayScreen: React.FC<GamePlayScreenProps> = ({ onBack, onSelectCollabo
               >
                 <Text style={styles.navigatorIconEmoji}>✏️</Text>
                 <Text style={styles.navigatorText}>Editor</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+            {/* Icono fijo de Calendarizador */}
+            <TouchableOpacity
+              style={[styles.navigatorIcon, { bottom: 340 }]}
+              onPress={() => {
+                if (typeof onStartCalendarizador === 'function') {
+                  onStartCalendarizador();
+                }
+              }}
+            >
+              <LinearGradient
+                colors={['#6272a4', '#44475a']}
+                style={styles.navigatorGradient}
+              >
+                <Text style={styles.navigatorIconEmoji}>📅</Text>
+                <Text style={styles.navigatorText}>Calendarizador</Text>
               </LinearGradient>
             </TouchableOpacity>
           </View>

@@ -1,68 +1,114 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, Alert, Animated, Dimensions } from 'react-native';
+import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
+import { StyleSheet, View, Alert, Animated, Dimensions, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ActivityProvider } from './src/contexts/ActivityContext';
 
-import LoginScreen from './src/screens/LoginScreen';
-import RegisterScreen from './src/screens/RegisterScreen';
-import GameMenuScreen from './src/screens/GameMenuScreen';
-import SettingsScreen from './src/screens/SettingsScreen';
-import GamePlayScreen from './src/screens/GamePlayScreen';
-import CollaboratorDetailScreen from './src/screens/CollaboratorDetailScreen';
-import EditorScreen from './src/screens/EditorScreen';
+// Lazy loading de pantallas
+const LoginScreen = lazy(() => import('./src/screens/LoginScreen'));
+const RegisterScreen = lazy(() => import('./src/screens/RegisterScreen'));
+const GameMenuScreen = lazy(() => import('./src/screens/GameMenuScreen'));
+const SettingsScreen = lazy(() => import('./src/screens/SettingsScreen'));
+const GamePlayScreen = lazy(() => import('./src/screens/GamePlayScreen'));
+const CollaboratorDetailScreen = lazy(() => import('./src/screens/CollaboratorDetailScreen'));
+const EditorScreen = lazy(() => import('./src/screens/EditorScreen'));
+const CalendarizadorScreen = lazy(() => import('./src/screens/CalendarizadorScreen'));
 
-type Screen = 'login' | 'register' | 'game-menu' | 'settings' | 'game-play' | 'collaborator-detail' | 'editor';
+type Screen = 'login' | 'register' | 'game-menu' | 'settings' | 'game-play' | 'collaborator-detail' | 'editor' | 'calendarizador';
 
 const { width } = Dimensions.get('window');
 
-export default function App() {
-  const [currentScreen, setCurrentScreen] = useState<Screen>('login');
-  const [previousScreen, setPreviousScreen] = useState<Screen>('login');
+// Hook personalizado para manejo de autenticación
+const useAuth = () => {
   const [username, setUsername] = useState<string>('');
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+
+  const checkToken = async () => {
+    try {
+      const [storedToken, storedUsername] = await Promise.all([
+        AsyncStorage.getItem('authToken'),
+        AsyncStorage.getItem('username')
+      ]);
+      
+      if (storedToken && storedUsername) {
+        setToken(storedToken);
+        setUsername(storedUsername);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Error al recuperar el token:', error);
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const login = async (username: string) => {
+    try {
+      await AsyncStorage.setItem('username', username);
+      setUsername(username);
+      return true;
+    } catch (error) {
+      console.error('Error en login:', error);
+      return false;
+    }
+  };
+
+  const logout = async () => {
+    try {
+      await Promise.all([
+        AsyncStorage.removeItem('authToken'),
+        AsyncStorage.removeItem('username')
+      ]);
+      setToken(null);
+      setUsername('');
+      return true;
+    } catch (error) {
+      console.error('Error en logout:', error);
+      return false;
+    }
+  };
+
+  return { username, token, isLoading, checkToken, login, logout };
+};
+
+// Componente de carga
+const LoadingScreen = () => (
+  <View style={styles.loadingContainer}>
+    <ActivityIndicator size="large" color="#ffffff" />
+  </View>
+);
+
+export default function App() {
+  const { username, token, isLoading, checkToken, login, logout } = useAuth();
+  const [currentScreen, setCurrentScreen] = useState<Screen>('login');
+  const [previousScreen, setPreviousScreen] = useState<Screen>('login');
   const [selectedCollaborator, setSelectedCollaborator] = useState<any>(null);
   const [selectedAreaName, setSelectedAreaName] = useState<string>('');
   
-  // Animaciones para transiciones
+  // Animaciones optimizadas
   const screenOpacity = useRef(new Animated.Value(1)).current;
   const screenTranslateX = useRef(new Animated.Value(0)).current;
   const isAnimating = useRef(false);
 
-  // Comprobar si hay un token guardado al iniciar la aplicación
   useEffect(() => {
-    const checkToken = async () => {
-      try {
-        const storedToken = await AsyncStorage.getItem('authToken');
-        const storedUsername = await AsyncStorage.getItem('username');
-        
-        if (storedToken && storedUsername) {
-          setToken(storedToken);
-          setUsername(storedUsername);
-          setCurrentScreen('game-menu');
-        }
-      } catch (error) {
-        console.error('Error al recuperar el token:', error);
-      } finally {
-        setIsLoading(false);
+    checkToken().then(hasToken => {
+      if (hasToken) {
+        setCurrentScreen('game-menu');
       }
-    };
-
-    checkToken();
+    });
   }, []);
 
-  // Función para cambiar de pantalla con animación
-  const changeScreen = (newScreen: Screen, direction: 'left' | 'right' = 'right') => {
+  // Función optimizada para cambiar de pantalla
+  const changeScreen = React.useCallback((newScreen: Screen, direction: 'left' | 'right' = 'right') => {
     if (isAnimating.current) return;
     isAnimating.current = true;
     
     setPreviousScreen(currentScreen);
-    
-    // Configurar dirección de la animación
     const multiplier = direction === 'right' ? 1 : -1;
     
-    // Primera parte de la animación (salida)
     Animated.parallel([
       Animated.timing(screenOpacity, {
         toValue: 0,
@@ -75,13 +121,9 @@ export default function App() {
         useNativeDriver: true
       })
     ]).start(() => {
-      // Cambiar la pantalla actual
       setCurrentScreen(newScreen);
-      
-      // Resetear la posición para la entrada
       screenTranslateX.setValue(100 * multiplier);
       
-      // Segunda parte de la animación (entrada)
       Animated.parallel([
         Animated.timing(screenOpacity, {
           toValue: 1,
@@ -97,76 +139,30 @@ export default function App() {
         isAnimating.current = false;
       });
     });
-  };
+  }, [currentScreen]);
 
-  const handleLogin = async (username: string) => {
-    try {
-      await AsyncStorage.setItem('username', username);
-      setUsername(username);
+  const handleLogin = React.useCallback(async (username: string) => {
+    const success = await login(username);
+    if (success) {
       changeScreen('game-menu');
-    } catch (error) {
-      Alert.alert('Error', 'No se pudo guardar la sesión');
+    } else {
+      Alert.alert('Error', 'No se pudo iniciar sesión');
     }
-  };
+  }, [login, changeScreen]);
 
-  const handleRegister = async (username: string) => {
-    try {
-      await AsyncStorage.setItem('username', username);
-      setUsername(username);
-      changeScreen('game-menu');
-    } catch (error) {
-      Alert.alert('Error', 'No se pudo guardar la sesión');
-    }
-  };
-
-  const handleLogout = async () => {
-    try {
-      await AsyncStorage.removeItem('authToken');
-      await AsyncStorage.removeItem('username');
-      setToken(null);
-      setUsername('');
+  const handleLogout = React.useCallback(async () => {
+    const success = await logout();
+    if (success) {
       changeScreen('login', 'left');
-    } catch (error) {
+    } else {
       Alert.alert('Error', 'No se pudo cerrar la sesión');
     }
-  };
+  }, [logout, changeScreen]);
 
-  const handleStartGame = () => {
-    changeScreen('game-play');
-  };
-  
-  const handleSettings = () => {
-    changeScreen('settings');
-  };
-  
-  const handleBackToMenu = () => {
-    changeScreen('game-menu', 'left');
-  };
-
-  const handleSelectCollaborator = (collaborator: any, areaName: string) => {
-    setSelectedCollaborator(collaborator);
-    setSelectedAreaName(areaName);
-    changeScreen('collaborator-detail');
-  };
-
-  const handleBackToGamePlay = () => {
-    changeScreen('game-play', 'left');
-  };
-
-  const handleStartEditor = () => {
-    changeScreen('editor');
-  };
-
-  // Mostrar pantalla de carga mientras se verifica el token
   if (isLoading) {
-    return (
-      <View style={styles.container}>
-        {/* Aquí podría ir un componente de carga animado */}
-      </View>
-    );
+    return <LoadingScreen />;
   }
 
-  // Renderizar la pantalla actual con animación
   return (
     <ActivityProvider>
       <View style={styles.container}>
@@ -179,57 +175,73 @@ export default function App() {
             }
           ]}
         >
-          {currentScreen === 'login' && (
-            <LoginScreen 
-              onLogin={handleLogin} 
-              onNavigateToRegister={() => changeScreen('register')} 
-            />
-          )}
-          
-          {currentScreen === 'register' && (
-            <RegisterScreen 
-              onRegister={handleRegister} 
-              onNavigateToLogin={() => changeScreen('login', 'left')} 
-            />
-          )}
-          
-          {currentScreen === 'game-menu' && (
-            <GameMenuScreen 
-              username={username} 
-              onLogout={handleLogout} 
-              onStartGame={handleStartGame}
-              onSettings={handleSettings}
-              onStartEditor={handleStartEditor}
-            />
-          )}
-          
-          {currentScreen === 'settings' && (
-            <SettingsScreen
-              onBack={handleBackToMenu}
-            />
-          )}
-          
-          {currentScreen === 'game-play' && (
-            <GamePlayScreen
-              onBack={handleBackToMenu}
-              onSelectCollaborator={handleSelectCollaborator}
-            />
-          )}
-          
-          {currentScreen === 'collaborator-detail' && selectedCollaborator && (
-            <CollaboratorDetailScreen
-              collaborator={selectedCollaborator}
-              areaName={selectedAreaName}
-              onBack={handleBackToGamePlay}
-            />
-          )}
-          
-          {currentScreen === 'editor' && (
-            <EditorScreen
-              onBack={handleBackToMenu}
-              username={username}
-            />
-          )}
+          <Suspense fallback={<LoadingScreen />}>
+            {currentScreen === 'login' && (
+              <LoginScreen 
+                onLogin={handleLogin} 
+                onNavigateToRegister={() => changeScreen('register')} 
+              />
+            )}
+            
+            {currentScreen === 'register' && (
+              <RegisterScreen 
+                onRegister={handleLogin} 
+                onNavigateToLogin={() => changeScreen('login', 'left')} 
+              />
+            )}
+            
+            {currentScreen === 'game-menu' && (
+              <GameMenuScreen 
+                username={username} 
+                onLogout={handleLogout} 
+                onStartGame={() => changeScreen('game-play')}
+                onSettings={() => changeScreen('settings')}
+                onStartEditor={() => changeScreen('editor')}
+                onStartCalendarizador={() => changeScreen('calendarizador')}
+              />
+            )}
+            
+            {currentScreen === 'settings' && (
+              <SettingsScreen
+                onBack={() => changeScreen('game-menu', 'left')}
+              />
+            )}
+            
+            {currentScreen === 'game-play' && (
+              <GamePlayScreen
+                onBack={() => changeScreen('game-menu', 'left')}
+                onSelectCollaborator={(collaborator, areaName) => {
+                  setSelectedCollaborator(collaborator);
+                  setSelectedAreaName(areaName);
+                  changeScreen('collaborator-detail');
+                }}
+                onStartEditor={() => changeScreen('editor')}
+                onStartCalendarizador={() => changeScreen('calendarizador')}
+              />
+            )}
+            
+            {currentScreen === 'collaborator-detail' && selectedCollaborator && (
+              <CollaboratorDetailScreen
+                collaborator={selectedCollaborator}
+                areaName={selectedAreaName}
+                onBack={() => changeScreen('game-play', 'left')}
+              />
+            )}
+            
+            {currentScreen === 'editor' && (
+              <EditorScreen
+                onBack={() => changeScreen('game-menu', 'left')}
+                username={username}
+              />
+            )}
+            
+            {currentScreen === 'calendarizador' && (
+              <CalendarizadorScreen
+                onBack={() => changeScreen('game-menu', 'left')}
+                username={username}
+              />
+            )}
+          </Suspense>
         </Animated.View>
         
         <StatusBar style="light" />
@@ -247,5 +259,11 @@ const styles = StyleSheet.create({
     flex: 1,
     width: '100%',
     height: '100%',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#1e1e2e',
   }
 }); 

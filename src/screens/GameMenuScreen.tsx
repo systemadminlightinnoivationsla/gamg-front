@@ -7,6 +7,7 @@ interface GameMenuScreenProps {
   onStartGame: () => void;
   onSettings: () => void;
   onStartEditor: () => void;
+  onStartCalendarizador: () => void;
 }
 
 const GameMenuScreen: React.FC<GameMenuScreenProps> = ({ 
@@ -14,7 +15,8 @@ const GameMenuScreen: React.FC<GameMenuScreenProps> = ({
   onLogout,
   onStartGame,
   onSettings,
-  onStartEditor
+  onStartEditor,
+  onStartCalendarizador
 }) => {
   // Animaciones
   const fadeIn = useRef(new Animated.Value(0)).current;
@@ -113,8 +115,8 @@ const GameMenuScreen: React.FC<GameMenuScreenProps> = ({
             })
           }}
         >
-          <TouchableOpacity style={styles.menuButton}>
-            <Text style={styles.menuButtonText}>Puntuaciones</Text>
+          <TouchableOpacity style={styles.menuButton} onPress={onStartCalendarizador}>
+            <Text style={styles.menuButtonText}>Calendarizador</Text>
           </TouchableOpacity>
         </Animated.View>
         
@@ -128,8 +130,8 @@ const GameMenuScreen: React.FC<GameMenuScreenProps> = ({
             })
           }}
         >
-          <TouchableOpacity style={styles.menuButton} onPress={onSettings}>
-            <Text style={styles.menuButtonText}>Configuración</Text>
+          <TouchableOpacity style={styles.menuButton}>
+            <Text style={styles.menuButtonText}>Puntuaciones</Text>
           </TouchableOpacity>
         </Animated.View>
         
